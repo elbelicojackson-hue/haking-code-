@@ -1,0 +1,29 @@
+{
+    "extends": "./tsconfig.base.json",
+    "compilerOptions": {
+        "target": "ESNext",
+        "module": "ESNext",
+        "moduleResolution": "bundler",
+        "jsx": "react-jsx",
+        "strict": true,
+        "skipLibCheck": true,
+        "noEmit": true,
+        "esModuleInterop": true,
+        "allowSyntheticDefaultImports": true,
+        "resolveJsonModule": true,
+        "types": ["bun"],
+        "paths": {
+            "src/*": ["./src/*"],
+            "@haking/builtin-tools/*": ["./packages/builtin-tools/src/*"],
+            "@haking/builtin-tools": ["./packages/builtin-tools/src/index.ts"],
+            "@haking/mcp-client/*": ["./packages/mcp-client/src/*"],
+            "@haking/mcp-client": ["./packages/mcp-client/src/index.ts"],
+            "@haking/agent-tools/*": ["./packages/agent-tools/src/*"],
+            "@haking/agent-tools": ["./packages/agent-tools/src/index.ts"],
+            "@haking/weixin/*": ["./packages/weixin/src/*"],
+            "@haking/weixin": ["./packages/weixin/src/index.ts"]
+        }
+    },
+    "include": ["src/**/*.ts", "src/**/*.tsx", "packages/**/*.ts", "packages/**/*.tsx"],
+    "exclude": ["node_modules"]
+}

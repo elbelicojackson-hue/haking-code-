@@ -1,0 +1,5 @@
+PE64
+    Compiler: Microsoft Visual C/C++(2017 v.15.x)[EXE64]
+    Linker: Microsoft Linker(14.16, Visual Studio 2017 15.9)[GUI64,console]
+    Tool: Microsoft Visual Studio(2017 v.15.9)[EXE64]
+    Note: not packed

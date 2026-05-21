@@ -1,0 +1,1 @@
+Emotet_Win32_Banking sample.bin

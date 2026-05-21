@@ -1,0 +1,5 @@
+PE32+
+    Compiler: Microsoft Visual C/C++(2008)[EXE32]
+    Linker: Microsoft Linker(9.00, Visual Studio 2008 9.0)[GUI32,console]
+    Packer: UPX(4.0)[NRV,brute]
+    Tool: Microsoft Visual Studio(2008)[EXE32]

@@ -1,0 +1,8 @@
+KERNEL32.dll
+GetTickCount
+IsDebuggerPresent
+CheckRemoteDebuggerPresent
+GetCurrentProcess
+NtQueryInformationProcess
+ZwSetInformationThread
+OutputDebugStringA
