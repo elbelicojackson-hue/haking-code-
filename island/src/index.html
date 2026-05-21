@@ -16,6 +16,7 @@ html, body { background: transparent; overflow: hidden; font-family: 'Consolas',
   width: 260px;
   height: 38px;
   overflow: hidden;
+  margin: 0 auto;
 }
 .island.expanded { height: 280px; width: 280px; }
 
@@ -188,29 +189,23 @@ island.addEventListener('mousedown', async (e) => {
 });
 
 // Hover to expand, mouse-leave to collapse (like macOS Dynamic Island).
-// No click needed — feels natural and avoids drag/expand conflict.
+// Window stays 290x290 permanently (transparent area is invisible).
+// Only CSS class toggles — no setSize needed.
 let hoverTimer = null;
 let leaveTimer = null;
 
 island.addEventListener('mouseenter', () => {
   clearTimeout(leaveTimer);
   hoverTimer = setTimeout(() => {
-    if (!island.classList.contains('expanded')) {
-      island.classList.add('expanded');
-      const h = 290, w = 290;
-      window.__TAURI__.window.getCurrentWindow().setSize(new window.__TAURI__.window.LogicalSize(w, h));
-    }
-  }, 200); // 200ms delay prevents accidental expand when dragging past
+    island.classList.add('expanded');
+  }, 150);
 });
 
 island.addEventListener('mouseleave', () => {
   clearTimeout(hoverTimer);
   leaveTimer = setTimeout(() => {
-    if (island.classList.contains('expanded')) {
-      island.classList.remove('expanded');
-      window.__TAURI__.window.getCurrentWindow().setSize(new window.__TAURI__.window.LogicalSize(260, 42));
-    }
-  }, 400); // 400ms grace period so you can move between sub-elements
+    island.classList.remove('expanded');
+  }, 350);
 });
 
 // Triple-click anywhere → close the process.

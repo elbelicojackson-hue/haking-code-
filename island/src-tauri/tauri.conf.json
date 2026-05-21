@@ -11,8 +11,8 @@
     "windows": [
       {
         "title": "Haking Island",
-        "width": 280,
-        "height": 42,
+        "width": 290,
+        "height": 290,
         "decorations": false,
         "transparent": true,
         "alwaysOnTop": true,
