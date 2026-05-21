@@ -48,6 +48,7 @@ import teleport from './commands/teleport/index.js'
 import recon from './algorithms/ccb-pev/index.js'
 import setup from './commands/setup/index.js'
 import arena from './commands/arena/index.js'
+import wiki from './commands/wiki/index.js'
 /* eslint-disable @typescript-eslint/no-require-imports */
 const agentsPlatform =
   process.env.USER_TYPE === 'ant'
@@ -307,6 +308,7 @@ const COMMANDS = memoize((): Command[] => [
   recon,
   setup,
   arena,
+  wiki,
   agents,
   branch,
   btw,
