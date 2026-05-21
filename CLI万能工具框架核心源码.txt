@@ -1,0 +1,2891 @@
+# CLI-Anything 核心源码汇总
+# 项目地址: https://github.com/HKUDS/CLI-Anything
+# 让所有CLI软件变成Agent-Native的框架
+
+============================================================
+# 核心/技能生成器
+# 文件: cli-anything-plugin\skill_generator.py
+============================================================
+"""
+SKILL.md Generator for CLI-Anything
+
+This module extracts metadata from CLI-Anything harnesses and generates
+SKILL.md files following the skill-creator methodology.
+
+The generated SKILL.md files contain:
+- YAML frontmatter with name and description (triggering metadata)
+- Markdown body with usage instructions
+- Command documentation
+- Examples for AI agents
+"""
+
+import re
+from pathlib import Path
+from typing import Optional
+from dataclasses import dataclass, field
+
+
+def _format_display_name(name: str) -> str:
+    """Format software name for display (replace underscores/hyphens with spaces, then title)."""
+    return name.replace("_", " ").replace("-", " ").title()
+
+
+def _canonical_skill_name(harness_path: Path, software_name: str) -> str:
+    """Return the repo-root canonical skill id for a harness."""
+    software_dir = software_name
+    if harness_path.name == "agent-harness" and harness_path.parent.name:
+        software_dir = harness_path.parent.name
+    return f"cli-anything-{software_dir.replace('_', '-')}"
+
+
+@dataclass
+class CommandInfo:
+    """Information about a CLI command."""
+    name: str
+    description: str
+
+
+@dataclass
+class CommandGroup:
+    """A group of related CLI commands."""
+    name: str
+    description: str
+    commands: list[CommandInfo] = field(default_factory=list)
+
+
+@dataclass
+class Example:
+    """An example of CLI usage."""
+    title: str
+    description: str
+    code: str
+
+
+@dataclass
+class SkillMetadata:
+    """Metadata extracted from a CLI-Anything harness."""
+    skill_name: str
+    skill_description: str
+    software_name: str
+    skill_intro: str
+    version: str
+    system_package: Optional[str] = None
+    command_groups: list[CommandGroup] = field(default_factory=list)
+    examples: list[Example] = field(default_factory=list)
+
+
+def extract_cli_metadata(harness_path: str) -> SkillMetadata:
+    """
+    Extract metadata from a CLI-Anything harness directory.
+
+    Args:
+        harness_path: Path to the agent-harness directory
+
+    Returns:
+        SkillMetadata containing extracted information
+    """
+    harness_path = Path(harness_path)
+
+    # Find the cli_anything/<software> directory
+    cli_anything_dir = harness_path / "cli_anything"
+    if not cli_anything_dir.exists():
+        raise ValueError(
+            f"cli_anything directory not found in {harness_path}. "
+            "Ensure the harness structure includes cli_anything/<software>/"
+        )
+    software_dirs = [d for d in cli_anything_dir.iterdir()
+                     if d.is_dir() and (d / "__init__.py").exists()]
+
+    if not software_dirs:
+        raise ValueError(f"No CLI package found in {harness_path}")
+
+    software_dir = software_dirs[0]
+    software_name = software_dir.name
+
+    # Extract metadata from README.md
+    readme_path = software_dir / "README.md"
+    skill_intro = ""
+    system_package = None
+
+    if readme_path.exists():
+        readme_content = readme_path.read_text(encoding="utf-8")
+        skill_intro = extract_intro_from_readme(readme_content)
+        system_package = extract_system_package(readme_content)
+
+    # Extract version from setup.py
+    setup_path = harness_path / "setup.py"
+    version = "1.0.0"
+
+    if setup_path.exists():
+        version = extract_version_from_setup(setup_path)
+
+    # Extract commands from CLI file
+    cli_file = software_dir / f"{software_name}_cli.py"
+    command_groups = []
+
+    if cli_file.exists():
+        command_groups = extract_commands_from_cli(cli_file)
+
+    # Generate examples based on software type
+    examples = generate_examples(software_name, command_groups)
+
+    # Build skill name and description
+    skill_name = _canonical_skill_name(harness_path, software_name)
+    if skill_intro:
+        intro_snippet = skill_intro[:100]
+        suffix = "..." if len(skill_intro) > 100 else ""
+        skill_description = f"Command-line interface for {_format_display_name(software_name)} - {intro_snippet}{suffix}"
+    else:
+        skill_description = f"Command-line interface for {_format_display_name(software_name)}"
+
+    return SkillMetadata(
+        skill_name=skill_name,
+        skill_description=skill_description,
+        software_name=software_name,
+        skill_intro=skill_intro,
+        version=version,
+        system_package=system_package,
+        command_groups=command_groups,
+        examples=examples
+    )
+
+
+def extract_intro_from_readme(content: str) -> str:
+    """Extract introduction text from README content."""
+    # Find the first paragraph after the title
+    lines = content.split("\n")
+    intro_lines = []
+    in_intro = False
+
+    for line in lines:
+        line = line.strip()
+        if not line:
+            if in_intro and intro_lines:
+                break
+            continue
+        if line.startswith("# "):
+            in_intro = True
+            continue
+        if line.startswith("##"):
+            break
+        if in_intro:
+            intro_lines.append(line)
+
+    return " ".join(intro_lines) or f"CLI interface for the software."
+
+
+def extract_system_package(content: str) -> Optional[str]:
+    """Extract system package installation command from README."""
+    # Look for apt/brew install patterns
+    patterns = [
+        r"`apt install ([\w\-]+)`",
+        r"`brew install ([\w\-]+)`",
+        r"`apt-get install ([\w\-]+)`",
+    ]
+
+    for pattern in patterns:
+        match = re.search(pattern, content)
+        if match:
+            package = match.group(1)
+            if "apt-get" in pattern:
+                return f"apt-get install {package}"
+            elif "apt" in pattern:
+                return f"apt install {package}"
+            elif "brew" in pattern:
+                return f"brew install {package}"
+
+    return None
+
+
+def extract_version_from_setup(setup_path: Path) -> str:
+    """Extract version from setup.py."""
+    content = setup_path.read_text(encoding="utf-8")
+    match = re.search(r'version\s*=\s*["\']([^"\']+)["\']', content)
+    if match:
+        return match.group(1)
+    return "1.0.0"
+
+
+def extract_commands_from_cli(cli_path: Path) -> list[CommandGroup]:
+    """Extract command groups and commands from CLI file."""
+    content = cli_path.read_text(encoding="utf-8")
+    groups = []
+
+    # Find Click group decorators
+    # Pattern handles:
+    # - Multi-line decorators (decorators on separate lines)
+    # - Docstrings on the same line or following line after function definition
+    # - Various Click decorator patterns like @click.option(), @click.argument()
+    # Uses re.DOTALL to match across newlines between decorator and def
+    group_pattern = (
+        r'@(\w+)\.group\([^)]*\)'                          # @xxx.group(...)
+        r'(?:\s*@[\w.]+\([^)]*\))*'                         # optional additional decorators
+        r'\s*def\s+(\w+)\([^)]*\)'                          # def xxx(...):
+        r':\s*'                                             # colon with optional whitespace
+        r'(?:"""([\s\S]*?)"""|\'\'\'([\s\S]*?)\'\'\')?'      # optional docstring (""" or ''')
+    )
+
+    for match in re.finditer(group_pattern, content):
+        group_func = match.group(2)
+        # Docstring can be in group 3 (triple-double) or group 4 (triple-single)
+        group_doc = (match.group(3) or match.group(4) or "").strip()
+
+        group_name = group_func.replace("_", " ").title()
+        if not group_name:
+            group_name = group_func.title()
+
+        groups.append(CommandGroup(
+            name=group_name,
+            description=group_doc or f"Commands for {group_name.lower()} operations.",
+            commands=[]
+        ))
+
+    # Find Click command decorators
+    # Pattern handles:
+    # - Multi-line decorators (decorators on separate lines)
+    # - Docstrings on the same line or following line after function definition
+    # - Various Click decorator patterns like @click.option(), @click.argument()
+    command_pattern = (
+        r'@(\w+)\.command\([^)]*\)'                         # @xxx.command(...)
+        r'(?:\s*@[\w.]+\([^)]*\))*'                          # optional additional decorators
+        r'\s*def\s+(\w+)\([^)]*\)'                           # def xxx(...):
+        r':\s*'                                              # colon with optional whitespace
+        r'(?:"""([\s\S]*?)"""|\'\'\'([\s\S]*?)\'\'\')?'       # optional docstring (""" or ''')
+    )
+
+    for match in re.finditer(command_pattern, content):
+        group_name = match.group(1)
+        cmd_name = match.group(2)
+        # Docstring can be in group 3 (triple-double) or group 4 (triple-single)
+        cmd_doc = (match.group(3) or match.group(4) or "").strip()
+
+        # Find the matching group
+        for group in groups:
+            if group.name.lower().replace(" ", "_") == group_name.lower():
+                group.commands.append(CommandInfo(
+                    name=cmd_name.replace("_", "-"),
+                    description=cmd_doc or f"Execute {cmd_name} operation."
+                ))
+
+    # If no groups found, create a default one with all commands
+    if not groups:
+        default_group = CommandGroup(
+            name="General",
+            description="General commands for the CLI.",
+            commands=[]
+        )
+
+        for match in re.finditer(command_pattern, content):
+            cmd_name = match.group(2)
+            # Docstring can be in group 3 (triple-double) or group 4 (triple-single)
+            cmd_doc = (match.group(3) or match.group(4) or "").strip()
+            default_group.commands.append(CommandInfo(
+                name=cmd_name.replace("_", "-"),
+                description=cmd_doc or f"Execute {cmd_name} operation."
+            ))
+
+        if default_group.commands:
+            groups.append(default_group)
+
+    return groups
+
+
+def generate_examples(software_name: str, command_groups: list[CommandGroup]) -> list[Example]:
+    """Generate usage examples based on software type and available commands."""
+    examples = []
+
+    # Basic project creation example
+    examples.append(Example(
+        title="Create a New Project",
+        description=f"Create a new {software_name} project file.",
+        code=f"""cli-anything-{software_name} project new -o myproject.json
+# Or with JSON output for programmatic use
+cli-anything-{software_name} --json project new -o myproject.json"""
+    ))
+
+    # REPL usage example
+    examples.append(Example(
+        title="Interactive REPL Session",
+        description="Start an interactive session with undo/redo support.",
+        code=f"""cli-anything-{software_name}
+# Enter commands interactively
+# Use 'help' to see available commands
+# Use 'undo' and 'redo' for history navigation"""
+    ))
+
+    # Export example if export commands exist
+    for group in command_groups:
+        if "export" in group.name.lower():
+            examples.append(Example(
+                title="Export Project",
+                description="Export the project to a final output format.",
+                code=f"""cli-anything-{software_name} --project myproject.json export render output.pdf --overwrite"""
+            ))
+            break
+
+    return examples
+
+
+def generate_skill_md(metadata: SkillMetadata, template_path: Optional[str] = None) -> str:
+    """
+    Generate SKILL.md content from metadata using Jinja2 template.
+
+    Args:
+        metadata: SkillMetadata containing CLI information
+        template_path: Optional path to custom template file
+
+    Returns:
+        Generated SKILL.md content as string
+    """
+    try:
+        from jinja2 import Environment, FileSystemLoader
+    except ImportError:
+        # Fallback to simple string formatting if Jinja2 not available
+        return generate_skill_md_simple(metadata)
+
+    # Load template
+    if template_path is None:
+        template_path = Path(__file__).parent / "templates" / "SKILL.md.template"
+    else:
+        template_path = Path(template_path)
+
+    if not template_path.exists():
+        return generate_skill_md_simple(metadata)
+
+    env = Environment(loader=FileSystemLoader(template_path.parent))
+    template = env.get_template(template_path.name)
+
+    # Render template
+    return template.render(
+        skill_name=metadata.skill_name,
+        skill_description=metadata.skill_description,
+        software_name=metadata.software_name,
+        skill_intro=metadata.skill_intro,
+        version=metadata.version,
+        system_package=metadata.system_package,
+        command_groups=[{
+            "name": g.name,
+            "description": g.description,
+            "commands": [{"name": c.name, "description": c.description} for c in g.commands]
+        } for g in metadata.command_groups],
+        examples=[{
+            "title": e.title,
+            "description": e.description,
+            "code": e.code
+        } for e in metadata.examples]
+    )
+
+
+def generate_skill_md_simple(metadata: SkillMetadata) -> str:
+    """Generate SKILL.md without Jinja2 dependency."""
+    lines = [
+        "---",
+        f'name: "{metadata.skill_name}"',
+        f'description: "{metadata.skill_description}"',
+        "---",
+        "",
+        f"# {metadata.skill_name}",
+        "",
+        metadata.skill_intro,
+        "",
+        "## Installation",
+        "",
+        f"This CLI is installed as part of the cli-anything-{metadata.software_name} package:",
+        "",
+        f"```bash",
+        f"pip install cli-anything-{metadata.software_name}",
+        f"```",
+        "",
+        "**Prerequisites:**",
+        "- Python 3.10+",
+        f"- {_format_display_name(metadata.software_name)} must be installed on your system",
+    ]
+
+    if metadata.system_package:
+        lines.extend([
+            f"- Install {metadata.software_name}: `{metadata.system_package}`"
+        ])
+
+    lines.extend([
+        "",
+        "## Usage",
+        "",
+        "### Basic Commands",
+        "",
+        "```bash",
+        "# Show help",
+        f"cli-anything-{metadata.software_name} --help",
+        "",
+        "# Start interactive REPL mode",
+        f"cli-anything-{metadata.software_name}",
+        "",
+        "# Create a new project",
+        f"cli-anything-{metadata.software_name} project new -o project.json",
+        "",
+        "# Run with JSON output (for agent consumption)",
+        f"cli-anything-{metadata.software_name} --json project info -p project.json",
+        "```",
+        "",
+    ])
+
+    # Add command groups
+    if metadata.command_groups:
+        lines.append("## Command Groups")
+        lines.append("")
+
+        for group in metadata.command_groups:
+            lines.append(f"### {group.name}")
+            lines.append("")
+            lines.append(group.description)
+            lines.append("")
+
+            if group.commands:
+                lines.append("| Command | Description |")
+                lines.append("|---------|-------------|")
+                for cmd in group.commands:
+                    lines.append(f"| `{cmd.name}` | {cmd.description} |")
+                lines.append("")
+
+    # Add examples
+    if metadata.examples:
+        lines.append("## Examples")
+        lines.append("")
+
+        for example in metadata.examples:
+            lines.append(f"### {example.title}")
+            lines.append("")
+            lines.append(example.description)
+            lines.append("")
+            lines.append("```bash")
+            lines.append(example.code)
+            lines.append("```")
+            lines.append("")
+
+    # Add AI agent guidance
+    lines.extend([
+        "## For AI Agents",
+        "",
+        "When using this CLI programmatically:",
+        "",
+        "1. **Always use `--json` flag** for parseable output",
+        "2. **Check return codes** - 0 for success, non-zero for errors",
+        "3. **Parse stderr** for error messages on failure",
+        "4. **Use absolute paths** for all file operations",
+        "5. **Verify outputs exist** after export operations",
+        "",
+        "## Version",
+        "",
+        metadata.version,
+    ])
+
+    return "\n".join(lines)
+
+
+def generate_skill_file(harness_path: str, output_path: Optional[str] = None,
+                        template_path: Optional[str] = None) -> str:
+    """
+    Generate a SKILL.md file for a CLI-Anything harness.
+
+    Args:
+        harness_path: Path to the agent-harness directory
+        output_path: Optional output path for SKILL.md
+                     (default: skills/cli-anything-<software>/SKILL.md)
+        template_path: Optional path to custom Jinja2 template
+
+    Returns:
+        Path to the generated SKILL.md file
+    """
+    # Extract metadata
+    metadata = extract_cli_metadata(harness_path)
+
+    # Generate content
+    content = generate_skill_md(metadata, template_path)
+
+    # Determine output path
+    harness_path_obj = Path(harness_path)
+    compatibility_path = harness_path_obj / "cli_anything" / metadata.software_name / "skills" / "SKILL.md"
+    if output_path is None:
+        repo_root = harness_path_obj.parent.parent
+        output_path = repo_root / "skills" / metadata.skill_name / "SKILL.md"
+    else:
+        output_path = Path(output_path)
+
+    # Ensure output directory exists
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Write file
+    output_path.write_text(content, encoding="utf-8")
+    if compatibility_path != output_path:
+        compatibility_path.parent.mkdir(parents=True, exist_ok=True)
+        compatibility_path.write_text(content, encoding="utf-8")
+
+    return str(output_path)
+
+
+# CLI interface for standalone usage
+if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Generate SKILL.md for CLI-Anything harnesses"
+    )
+    parser.add_argument(
+        "harness_path",
+        help="Path to the agent-harness directory"
+    )
+    parser.add_argument(
+        "-o", "--output",
+        help="Output path for SKILL.md (default: skills/cli-anything-<software>/SKILL.md)",
+        default=None
+    )
+    parser.add_argument(
+        "-t", "--template",
+        help="Path to custom Jinja2 template",
+        default=None
+    )
+
+    args = parser.parse_args()
+
+    output_file = generate_skill_file(
+        args.harness_path,
+        args.output,
+        args.template
+    )
+
+    print(f"Generated: {output_file}")
+
+
+============================================================
+# 核心/REPL交互层
+# 文件: cli-anything-plugin\repl_skin.py
+============================================================
+"""cli-anything REPL Skin — Unified terminal interface for all CLI harnesses.
+
+Copy this file into your CLI package at:
+    cli_anything/<software>/utils/repl_skin.py
+
+Usage:
+    from cli_anything.<software>.utils.repl_skin import ReplSkin
+
+    skin = ReplSkin("shotcut", version="1.0.0")
+    skin.print_banner()  # auto-detects repo-root or packaged SKILL.md
+    prompt_text = skin.prompt(project_name="my_video.mlt", modified=True)
+    skin.success("Project saved")
+    skin.error("File not found")
+    skin.warning("Unsaved changes")
+    skin.info("Processing 24 clips...")
+    skin.status("Track 1", "3 clips, 00:02:30")
+    skin.table(headers, rows)
+    skin.print_goodbye()
+"""
+
+import os
+import sys
+from pathlib import Path
+
+# ── ANSI color codes (no external deps for core styling) ──────────────
+
+_RESET = "\033[0m"
+_BOLD = "\033[1m"
+_DIM = "\033[2m"
+_ITALIC = "\033[3m"
+_UNDERLINE = "\033[4m"
+
+# Brand colors
+_CYAN = "\033[38;5;80m"       # cli-anything brand cyan
+_CYAN_BG = "\033[48;5;80m"
+_WHITE = "\033[97m"
+_GRAY = "\033[38;5;245m"
+_DARK_GRAY = "\033[38;5;240m"
+_LIGHT_GRAY = "\033[38;5;250m"
+
+# Software accent colors — each software gets a unique accent
+_ACCENT_COLORS = {
+    "gimp":        "\033[38;5;214m",   # warm orange
+    "blender":     "\033[38;5;208m",   # deep orange
+    "inkscape":    "\033[38;5;39m",    # bright blue
+    "audacity":    "\033[38;5;33m",    # navy blue
+    "libreoffice": "\033[38;5;40m",    # green
+    "obs_studio":  "\033[38;5;55m",    # purple
+    "kdenlive":    "\033[38;5;69m",    # slate blue
+    "shotcut":     "\033[38;5;35m",    # teal green
+}
+_DEFAULT_ACCENT = "\033[38;5;75m"      # default sky blue
+
+# Status colors
+_GREEN = "\033[38;5;78m"
+_YELLOW = "\033[38;5;220m"
+_RED = "\033[38;5;196m"
+_BLUE = "\033[38;5;75m"
+_MAGENTA = "\033[38;5;176m"
+
+_SKILL_SOURCE_REPO = os.environ.get("CLI_ANYTHING_SKILL_REPO", "HKUDS/CLI-Anything")
+
+# ── Brand icon ────────────────────────────────────────────────────────
+
+# The cli-anything icon: a small colored diamond/chevron mark
+_ICON = f"{_CYAN}{_BOLD}◆{_RESET}"
+_ICON_SMALL = f"{_CYAN}▸{_RESET}"
+
+# ── Box drawing characters ────────────────────────────────────────────
+
+_H_LINE = "─"
+_V_LINE = "│"
+_TL = "╭"
+_TR = "╮"
+_BL = "╰"
+_BR = "╯"
+_T_DOWN = "┬"
+_T_UP = "┴"
+_T_RIGHT = "├"
+_T_LEFT = "┤"
+_CROSS = "┼"
+
+
+def _strip_ansi(text: str) -> str:
+    """Remove ANSI escape codes for length calculation."""
+    import re
+    return re.sub(r"\033\[[^m]*m", "", text)
+
+
+def _visible_len(text: str) -> int:
+    """Get visible length of text (excluding ANSI codes)."""
+    return len(_strip_ansi(text))
+
+
+def _display_home_path(path: str) -> str:
+    """Display a path relative to the home directory when possible."""
+    expanded = Path(path).expanduser().resolve()
+    home = Path.home().resolve()
+    try:
+        relative = expanded.relative_to(home)
+        return f"~/{relative.as_posix()}"
+    except ValueError:
+        return str(expanded)
+
+
+class ReplSkin:
+    """Unified REPL skin for cli-anything CLIs.
+
+    Provides consistent branding, prompts, and message formatting
+    across all CLI harnesses built with the cli-anything methodology.
+    """
+
+    def __init__(self, software: str, version: str = "1.0.0",
+                 history_file: str | None = None, skill_path: str | None = None):
+        """Initialize the REPL skin.
+
+        Args:
+            software: Software name (e.g., "gimp", "shotcut", "blender").
+            version: CLI version string.
+            history_file: Path for persistent command history.
+                         Defaults to ~/.cli-anything-<software>/history
+            skill_path: Path to the SKILL.md file for agent discovery.
+                        Auto-detected from the repo-root skills/ tree when present,
+                        otherwise from the package's skills/ directory.
+                        Displayed in banner for AI agents to know where to read skill info.
+        """
+        self.software = software.lower().replace("-", "_")
+        self.display_name = software.replace("_", " ").title()
+        self.version = version
+        software_aliases = {"iterm2_ctl": "iterm2"}
+        self.skill_slug = software_aliases.get(self.software, self.software).replace("_", "-")
+        self.skill_id = f"cli-anything-{self.skill_slug}"
+        self.skill_install_cmd = (
+            f"npx skills add {_SKILL_SOURCE_REPO} --skill {self.skill_id} -g -y"
+        )
+        global_skill_root = Path(
+            os.environ.get("CLI_ANYTHING_GLOBAL_SKILLS_DIR", str(Path.home() / ".agents" / "skills"))
+        ).expanduser()
+        self.global_skill_path = str(global_skill_root / self.skill_id / "SKILL.md")
+
+        # Prefer repo-root canonical skills/<skill-id>/SKILL.md when running
+        # inside the CLI-Anything monorepo. Fall back to the packaged
+        # cli_anything/<software>/skills/SKILL.md for installed harnesses.
+        if skill_path is None:
+            package_skill = Path(__file__).resolve().parent.parent / "skills" / "SKILL.md"
+            repo_skill = None
+            for parent in Path(__file__).resolve().parents:
+                candidate = parent / "skills" / self.skill_id / "SKILL.md"
+                if candidate.is_file():
+                    repo_skill = candidate
+                    break
+            if repo_skill and repo_skill.is_file():
+                skill_path = str(repo_skill)
+            elif package_skill.is_file():
+                skill_path = str(package_skill)
+        self.skill_path = skill_path
+        self.accent = _ACCENT_COLORS.get(self.software, _DEFAULT_ACCENT)
+
+        # History file
+        if history_file is None:
+            hist_dir = Path.home() / f".cli-anything-{self.software}"
+            hist_dir.mkdir(parents=True, exist_ok=True)
+            self.history_file = str(hist_dir / "history")
+        else:
+            self.history_file = history_file
+
+        # Detect terminal capabilities
+        self._color = self._detect_color_support()
+
+    def _detect_color_support(self) -> bool:
+        """Check if terminal supports color."""
+        if os.environ.get("NO_COLOR"):
+            return False
+        if os.environ.get("CLI_ANYTHING_NO_COLOR"):
+            return False
+        if not hasattr(sys.stdout, "isatty"):
+            return False
+        return sys.stdout.isatty()
+
+    def _c(self, code: str, text: str) -> str:
+        """Apply color code if colors are supported."""
+        if not self._color:
+            return text
+        return f"{code}{text}{_RESET}"
+
+    # ── Banner ────────────────────────────────────────────────────────
+
+    def print_banner(self):
+        """Print the startup banner with branding."""
+        import textwrap
+
+        inner = 72
+
+        def _box_line(content: str) -> str:
+            """Wrap content in box drawing, padding to inner width."""
+            pad = inner - _visible_len(content)
+            vl = self._c(_DARK_GRAY, _V_LINE)
+            return f"{vl}{content}{' ' * max(0, pad)}{vl}"
+
+        def _meta_lines(label: str, value: str) -> list[str]:
+            """Wrap a metadata line for the banner box."""
+            icon = self._c(_MAGENTA, "◇")
+            label_text = self._c(_DARK_GRAY, label)
+            prefix = f" {icon} {label_text} "
+            available = max(12, inner - _visible_len(prefix))
+            wrapped = textwrap.wrap(
+                value,
+                width=available,
+                break_long_words=True,
+                break_on_hyphens=False,
+            ) or [""]
+            lines = [f"{prefix}{self._c(_LIGHT_GRAY, wrapped[0])}"]
+            continuation_prefix = " " * _visible_len(prefix)
+            for chunk in wrapped[1:]:
+                lines.append(f"{continuation_prefix}{self._c(_LIGHT_GRAY, chunk)}")
+            return lines
+
+        top = self._c(_DARK_GRAY, f"{_TL}{_H_LINE * inner}{_TR}")
+        bot = self._c(_DARK_GRAY, f"{_BL}{_H_LINE * inner}{_BR}")
+
+        # Title:  ◆  cli-anything · Shotcut
+        icon = self._c(_CYAN + _BOLD, "◆")
+        brand = self._c(_CYAN + _BOLD, "cli-anything")
+        dot = self._c(_DARK_GRAY, "·")
+        name = self._c(self.accent + _BOLD, self.display_name)
+        title = f" {icon}  {brand} {dot} {name}"
+
+        ver = f" {self._c(_DARK_GRAY, f'   v{self.version}')}"
+        tip = f" {self._c(_DARK_GRAY, '   Type help for commands, quit to exit')}"
+        empty = ""
+
+        meta_lines: list[str] = []
+        meta_lines.extend(_meta_lines("Install:", self.skill_install_cmd))
+        meta_lines.extend(_meta_lines("Global skill:", _display_home_path(self.global_skill_path)))
+        print(top)
+        print(_box_line(title))
+        print(_box_line(ver))
+        for line in meta_lines:
+            print(_box_line(line))
+        print(_box_line(empty))
+        print(_box_line(tip))
+        print(bot)
+        print()
+
+    # ── Prompt ────────────────────────────────────────────────────────
+
+    def prompt(self, project_name: str = "", modified: bool = False,
+               context: str = "") -> str:
+        """Build a styled prompt string for prompt_toolkit or input().
+
+        Args:
+            project_name: Current project name (empty if none open).
+            modified: Whether the project has unsaved changes.
+            context: Optional extra context to show in prompt.
+
+        Returns:
+            Formatted prompt string.
+        """
+        parts = []
+
+        # Icon
+        if self._color:
+            parts.append(f"{_CYAN}◆{_RESET} ")
+        else:
+            parts.append("> ")
+
+        # Software name
+        parts.append(self._c(self.accent + _BOLD, self.software))
+
+        # Project context
+        if project_name or context:
+            ctx = context or project_name
+            mod = "*" if modified else ""
+            parts.append(f" {self._c(_DARK_GRAY, '[')}")
+            parts.append(self._c(_LIGHT_GRAY, f"{ctx}{mod}"))
+            parts.append(self._c(_DARK_GRAY, ']'))
+
+        parts.append(self._c(_GRAY, " ❯ "))
+
+        return "".join(parts)
+
+    def prompt_tokens(self, project_name: str = "", modified: bool = False,
+                      context: str = ""):
+        """Build prompt_toolkit formatted text tokens for the prompt.
+
+        Use with prompt_toolkit's FormattedText for proper ANSI handling.
+
+        Returns:
+            list of (style, text) tuples for prompt_toolkit.
+        """
+        accent_hex = _ANSI_256_TO_HEX.get(self.accent, "#5fafff")
+        tokens = []
+
+        tokens.append(("class:icon", "◆ "))
+        tokens.append(("class:software", self.software))
+
+        if project_name or context:
+            ctx = context or project_name
+            mod = "*" if modified else ""
+            tokens.append(("class:bracket", " ["))
+            tokens.append(("class:context", f"{ctx}{mod}"))
+            tokens.append(("class:bracket", "]"))
+
+        tokens.append(("class:arrow", " ❯ "))
+
+        return tokens
+
+    def get_prompt_style(self):
+        """Get a prompt_toolkit Style object matching the skin.
+
+        Returns:
+            prompt_toolkit.styles.Style
+        """
+        try:
+            from prompt_toolkit.styles import Style
+        except ImportError:
+            return None
+
+        accent_hex = _ANSI_256_TO_HEX.get(self.accent, "#5fafff")
+
+        return Style.from_dict({
+            "icon": "#5fdfdf bold",     # cyan brand color
+            "software": f"{accent_hex} bold",
+            "bracket": "#585858",
+            "context": "#bcbcbc",
+            "arrow": "#808080",
+            # Completion menu
+            "completion-menu.completion": "bg:#303030 #bcbcbc",
+            "completion-menu.completion.current": f"bg:{accent_hex} #000000",
+            "completion-menu.meta.completion": "bg:#303030 #808080",
+            "completion-menu.meta.completion.current": f"bg:{accent_hex} #000000",
+            # Auto-suggest
+            "auto-suggest": "#585858",
+            # Bottom toolbar
+            "bottom-toolbar": "bg:#1c1c1c #808080",
+            "bottom-toolbar.text": "#808080",
+        })
+
+    # ── Messages ──────────────────────────────────────────────────────
+
+    def success(self, message: str):
+        """Print a success message with green checkmark."""
+        icon = self._c(_GREEN + _BOLD, "✓")
+        print(f"  {icon} {self._c(_GREEN, message)}")
+
+    def error(self, message: str):
+        """Print an error message with red cross."""
+        icon = self._c(_RED + _BOLD, "✗")
+        print(f"  {icon} {self._c(_RED, message)}", file=sys.stderr)
+
+    def warning(self, message: str):
+        """Print a warning message with yellow triangle."""
+        icon = self._c(_YELLOW + _BOLD, "⚠")
+        print(f"  {icon} {self._c(_YELLOW, message)}")
+
+    def info(self, message: str):
+        """Print an info message with blue dot."""
+        icon = self._c(_BLUE, "●")
+        print(f"  {icon} {self._c(_LIGHT_GRAY, message)}")
+
+    def hint(self, message: str):
+        """Print a subtle hint message."""
+        print(f"  {self._c(_DARK_GRAY, message)}")
+
+    def section(self, title: str):
+        """Print a section header."""
+        print()
+        print(f"  {self._c(self.accent + _BOLD, title)}")
+        print(f"  {self._c(_DARK_GRAY, _H_LINE * len(title))}")
+
+    # ── Status display ────────────────────────────────────────────────
+
+    def status(self, label: str, value: str):
+        """Print a key-value status line."""
+        lbl = self._c(_GRAY, f"  {label}:")
+        val = self._c(_WHITE, f" {value}")
+        print(f"{lbl}{val}")
+
+    def status_block(self, items: dict[str, str], title: str = ""):
+        """Print a block of status key-value pairs.
+
+        Args:
+            items: Dict of label -> value pairs.
+            title: Optional title for the block.
+        """
+        if title:
+            self.section(title)
+
+        max_key = max(len(k) for k in items) if items else 0
+        for label, value in items.items():
+            lbl = self._c(_GRAY, f"  {label:<{max_key}}")
+            val = self._c(_WHITE, f"  {value}")
+            print(f"{lbl}{val}")
+
+    def progress(self, current: int, total: int, label: str = ""):
+        """Print a simple progress indicator.
+
+        Args:
+            current: Current step number.
+            total: Total number of steps.
+            label: Optional label for the progress.
+        """
+        pct = int(current / total * 100) if total > 0 else 0
+        bar_width = 20
+        filled = int(bar_width * current / total) if total > 0 else 0
+        bar = "█" * filled + "░" * (bar_width - filled)
+        text = f"  {self._c(_CYAN, bar)} {self._c(_GRAY, f'{pct:3d}%')}"
+        if label:
+            text += f" {self._c(_LIGHT_GRAY, label)}"
+        print(text)
+
+    # ── Table display ─────────────────────────────────────────────────
+
+    def table(self, headers: list[str], rows: list[list[str]],
+              max_col_width: int = 40):
+        """Print a formatted table with box-drawing characters.
+
+        Args:
+            headers: Column header strings.
+            rows: List of rows, each a list of cell strings.
+            max_col_width: Maximum column width before truncation.
+        """
+        if not headers:
+            return
+
+        # Calculate column widths
+        col_widths = [min(len(h), max_col_width) for h in headers]
+        for row in rows:
+            for i, cell in enumerate(row):
+                if i < len(col_widths):
+                    col_widths[i] = min(
+                        max(col_widths[i], len(str(cell))), max_col_width
+                    )
+
+        def pad(text: str, width: int) -> str:
+            t = str(text)[:width]
+            return t + " " * (width - len(t))
+
+        # Header
+        header_cells = [
+            self._c(_CYAN + _BOLD, pad(h, col_widths[i]))
+            for i, h in enumerate(headers)
+        ]
+        sep = self._c(_DARK_GRAY, f" {_V_LINE} ")
+        header_line = f"  {sep.join(header_cells)}"
+        print(header_line)
+
+        # Separator
+        sep_parts = [self._c(_DARK_GRAY, _H_LINE * w) for w in col_widths]
+        sep_line = self._c(_DARK_GRAY, f"  {'───'.join([_H_LINE * w for w in col_widths])}")
+        print(sep_line)
+
+        # Rows
+        for row in rows:
+            cells = []
+            for i, cell in enumerate(row):
+                if i < len(col_widths):
+                    cells.append(self._c(_LIGHT_GRAY, pad(str(cell), col_widths[i])))
+            row_sep = self._c(_DARK_GRAY, f" {_V_LINE} ")
+            print(f"  {row_sep.join(cells)}")
+
+    # ── Help display ──────────────────────────────────────────────────
+
+    def help(self, commands: dict[str, str]):
+        """Print a formatted help listing.
+
+        Args:
+            commands: Dict of command -> description pairs.
+        """
+        self.section("Commands")
+        max_cmd = max(len(c) for c in commands) if commands else 0
+        for cmd, desc in commands.items():
+            cmd_styled = self._c(self.accent, f"  {cmd:<{max_cmd}}")
+            desc_styled = self._c(_GRAY, f"  {desc}")
+            print(f"{cmd_styled}{desc_styled}")
+        print()
+
+    # ── Goodbye ───────────────────────────────────────────────────────
+
+    def print_goodbye(self):
+        """Print a styled goodbye message."""
+        print(f"\n  {_ICON_SMALL} {self._c(_GRAY, 'Goodbye!')}\n")
+
+    # ── Prompt toolkit session factory ────────────────────────────────
+
+    def create_prompt_session(self):
+        """Create a prompt_toolkit PromptSession with skin styling.
+
+        Returns:
+            A configured PromptSession, or None if prompt_toolkit unavailable.
+        """
+        try:
+            from prompt_toolkit import PromptSession
+            from prompt_toolkit.history import FileHistory
+            from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
+            from prompt_toolkit.formatted_text import FormattedText
+
+            style = self.get_prompt_style()
+
+            session = PromptSession(
+                history=FileHistory(self.history_file),
+                auto_suggest=AutoSuggestFromHistory(),
+                style=style,
+                enable_history_search=True,
+            )
+            return session
+        except ImportError:
+            return None
+
+    def get_input(self, pt_session, project_name: str = "",
+                  modified: bool = False, context: str = "") -> str:
+        """Get input from user using prompt_toolkit or fallback.
+
+        Args:
+            pt_session: A prompt_toolkit PromptSession (or None).
+            project_name: Current project name.
+            modified: Whether project has unsaved changes.
+            context: Optional context string.
+
+        Returns:
+            User input string (stripped).
+        """
+        if pt_session is not None:
+            from prompt_toolkit.formatted_text import FormattedText
+            tokens = self.prompt_tokens(project_name, modified, context)
+            return pt_session.prompt(FormattedText(tokens)).strip()
+        else:
+            raw_prompt = self.prompt(project_name, modified, context)
+            return input(raw_prompt).strip()
+
+    # ── Toolbar builder ───────────────────────────────────────────────
+
+    def bottom_toolbar(self, items: dict[str, str]):
+        """Create a bottom toolbar callback for prompt_toolkit.
+
+        Args:
+            items: Dict of label -> value pairs to show in toolbar.
+
+        Returns:
+            A callable that returns FormattedText for the toolbar.
+        """
+        def toolbar():
+            from prompt_toolkit.formatted_text import FormattedText
+            parts = []
+            for i, (k, v) in enumerate(items.items()):
+                if i > 0:
+                    parts.append(("class:bottom-toolbar.text", "  │  "))
+                parts.append(("class:bottom-toolbar.text", f" {k}: "))
+                parts.append(("class:bottom-toolbar", v))
+            return FormattedText(parts)
+        return toolbar
+
+
+# ── ANSI 256-color to hex mapping (for prompt_toolkit styles) ─────────
+
+_ANSI_256_TO_HEX = {
+    "\033[38;5;33m":  "#0087ff",  # audacity navy blue
+    "\033[38;5;35m":  "#00af5f",  # shotcut teal
+    "\033[38;5;39m":  "#00afff",  # inkscape bright blue
+    "\033[38;5;40m":  "#00d700",  # libreoffice green
+    "\033[38;5;55m":  "#5f00af",  # obs purple
+    "\033[38;5;69m":  "#5f87ff",  # kdenlive slate blue
+    "\033[38;5;75m":  "#5fafff",  # default sky blue
+    "\033[38;5;80m":  "#5fd7d7",  # brand cyan
+    "\033[38;5;208m": "#ff8700",  # blender deep orange
+    "\033[38;5;214m": "#ffaf00",  # gimp warm orange
+}
+
+
+============================================================
+# 核心/CLI主程序
+# 文件: cli-hub\cli_hub\cli.py
+============================================================
+"""cli-hub — CLI entry point."""
+
+import os
+import shutil
+import sys
+import json as json_mod
+from pathlib import Path
+
+import click
+
+from cli_hub import __version__
+from cli_hub.registry import fetch_all_clis, get_cli, search_clis, list_categories
+from cli_hub.installer import install_cli, uninstall_cli, get_installed, update_cli
+from cli_hub.analytics import (
+    detect_invocation_context,
+    track_first_run,
+    track_install,
+    track_launch,
+    track_uninstall,
+    track_visit,
+)
+from cli_hub.preview import (
+    inspect_bundle,
+    inspect_session,
+    is_live_session_ref,
+    load_session,
+    open_in_browser,
+    render_html,
+    render_inspect_text,
+    render_live_html,
+    render_session_text,
+    start_static_server,
+)
+
+
+def _invocation_command(ctx, version):
+    """Return a compact label for the current invocation."""
+    argv = sys.argv[1:]
+    if version:
+        return "--version"
+    if ctx.invoked_subcommand:
+        return ctx.invoked_subcommand
+    if any(arg in ("--help", "-h") for arg in argv):
+        return "--help"
+    if argv:
+        return argv[0]
+    return "root"
+
+
+@click.group(invoke_without_command=True)
+@click.option("--version", is_flag=True, help="Show version.")
+@click.pass_context
+def main(ctx, version):
+    """cli-hub — Download and manage CLI-Anything harnesses and public CLIs."""
+    track_first_run()
+    track_visit(command=_invocation_command(ctx, version), detection=detect_invocation_context())
+    if version:
+        click.echo(f"cli-hub {__version__}")
+        return
+    if ctx.invoked_subcommand is None:
+        click.echo(ctx.get_help())
+
+
+def _source_tag(cli):
+    """Return a styled source indicator for display."""
+    source = cli.get("_source", "harness")
+    if source == "public":
+        manager = cli.get("package_manager") or cli.get("install_strategy") or "public"
+        return click.style(f" {manager}", fg="yellow")
+    return ""
+
+
+@main.command()
+@click.argument("name")
+def install(name):
+    """Install a CLI by name."""
+    click.echo(f"Installing {name}...")
+    success, msg = install_cli(name)
+    if success:
+        cli = get_cli(name)
+        track_install(name, cli["version"] if cli else "unknown")
+        click.secho(f"✓ {msg}", fg="green")
+        if cli:
+            click.echo(f"  Run it with: {cli['entry_point']}")
+            click.echo(f"  Or launch:   cli-hub launch {cli['name']}")
+            if cli.get("_source") == "public" and cli.get("npx_cmd"):
+                click.echo(f"  Or use npx:  {cli['npx_cmd']}")
+    else:
+        click.secho(f"✗ {msg}", fg="red", err=True)
+        raise SystemExit(1)
+
+
+@main.command()
+@click.argument("name")
+def uninstall(name):
+    """Uninstall a CLI by name."""
+    success, msg = uninstall_cli(name)
+    if success:
+        track_uninstall(name)
+        click.secho(f"✓ {msg}", fg="green")
+    else:
+        click.secho(f"✗ {msg}", fg="red", err=True)
+        raise SystemExit(1)
+
+
+@main.command()
+@click.argument("name")
+def update(name):
+    """Update a CLI to the latest version."""
+    click.echo(f"Updating {name}...")
+    success, msg = update_cli(name)
+    if success:
+        cli = get_cli(name)
+        track_install(name, cli["version"] if cli else "unknown")
+        click.secho(f"✓ {msg}", fg="green")
+    else:
+        click.secho(f"✗ {msg}", fg="red", err=True)
+        raise SystemExit(1)
+
+
+@main.command("list")
+@click.option("--category", "-c", default=None, help="Filter by category.")
+@click.option("--source", "-s", default=None, type=click.Choice(["harness", "public", "npm", "all"], case_sensitive=False),
+              help="Filter by source (harness, public, or all). 'npm' is kept as an alias for public.")
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON.")
+def list_clis(category, source, as_json):
+    """List all available CLIs."""
+    try:
+        all_clis = fetch_all_clis()
+    except Exception as e:
+        click.secho(f"Failed to fetch registry: {e}", fg="red", err=True)
+        raise SystemExit(1)
+
+    clis = all_clis
+    if category:
+        clis = [c for c in clis if c.get("category", "").lower() == category.lower()]
+    if source == "npm":
+        source = "public"
+    if source and source != "all":
+        clis = [c for c in clis if c.get("_source", "harness") == source]
+
+    installed = get_installed()
+
+    if as_json:
+        import json as json_mod
+        click.echo(json_mod.dumps(clis, indent=2))
+        return
+
+    if not clis:
+        click.echo("No CLIs found." + (f" Category '{category}' may not exist." if category else ""))
+        return
+
+    # Group by category
+    by_cat = {}
+    for cli in clis:
+        cat = cli.get("category", "uncategorized")
+        by_cat.setdefault(cat, []).append(cli)
+
+    for cat in sorted(by_cat):
+        click.secho(f"\n  {cat.upper()}", fg="blue", bold=True)
+        for cli in sorted(by_cat[cat], key=lambda c: c["name"]):
+            marker = click.style(" ●", fg="green") if cli["name"] in installed else "  "
+            name = click.style(f"{cli['name']:20s}", bold=True)
+            desc = cli["description"][:55]
+            tag = _source_tag(cli)
+            click.echo(f"  {marker} {name}{tag} {desc}")
+
+    total = len(clis)
+    inst = sum(1 for c in clis if c["name"] in installed)
+    harness_count = sum(1 for c in clis if c.get("_source") == "harness")
+    public_count = sum(1 for c in clis if c.get("_source") == "public")
+    click.echo(f"\n  {total} CLIs available ({harness_count} harness, {public_count} public), {inst} installed")
+    cats = list_categories()
+    click.echo(f"  Categories: {', '.join(cats)}")
+
+
+@main.command()
+@click.argument("query")
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON.")
+def search(query, as_json):
+    """Search CLIs by name, description, or category."""
+    results = search_clis(query)
+
+    if as_json:
+        import json as json_mod
+        click.echo(json_mod.dumps(results, indent=2))
+        return
+
+    if not results:
+        click.echo(f"No CLIs matching '{query}'.")
+        return
+
+    installed = get_installed()
+    for cli in results:
+        marker = click.style("●", fg="green") if cli["name"] in installed else " "
+        name = click.style(cli["name"], bold=True)
+        cat = click.style(f"[{cli.get('category', '')}]", fg="blue")
+        tag = _source_tag(cli)
+        click.echo(f"  {marker} {name} {cat}{tag} — {cli['description'][:65]}")
+        click.echo(f"    Install: cli-hub install {cli['name']}")
+
+
+@main.command()
+@click.argument("name")
+def info(name):
+    """Show details for a specific CLI."""
+    cli = get_cli(name)
+    if not cli:
+        click.secho(f"CLI '{name}' not found.", fg="red", err=True)
+        raise SystemExit(1)
+
+    installed = get_installed()
+    is_installed = cli["name"] in installed
+    source = cli.get("_source", "harness")
+
+    click.secho(f"\n  {cli['display_name']}", bold=True)
+    click.echo(f"  {cli['description']}")
+    click.echo(f"  Category:    {cli.get('category', 'N/A')}")
+    click.echo(f"  Source:      {source}")
+    if source == "public":
+        click.echo(f"  Install via: {cli.get('package_manager') or cli.get('install_strategy') or 'public'}")
+        if cli.get("npm_package"):
+            click.echo(f"  npm package: {cli['npm_package']}")
+        if cli.get("npx_cmd"):
+            click.echo(f"  npx command: {cli['npx_cmd']}")
+        if cli.get("install_cmd"):
+            click.echo(f"  Install cmd: {cli['install_cmd']}")
+        if cli.get("install_notes"):
+            click.echo(f"  Notes:       {cli['install_notes']}")
+    click.echo(f"  Version:     {cli['version']}")
+    click.echo(f"  Requires:    {cli.get('requires') or 'nothing'}")
+    click.echo(f"  Entry point: {cli['entry_point']}")
+    click.echo(f"  Homepage:    {cli.get('homepage', 'N/A')}")
+    contributors = cli.get("contributors", [])
+    if contributors:
+        names = ", ".join(ct["name"] for ct in contributors)
+        click.echo(f"  Contributors: {names}")
+    status = click.style("installed", fg="green") if is_installed else "not installed"
+    click.echo(f"  Status:      {status}")
+    click.echo(f"\n  Install: cli-hub install {cli['name']}")
+    click.echo()
+
+
+@main.command()
+@click.argument("name")
+@click.argument("args", nargs=-1)
+def launch(name, args):
+    """Launch an installed CLI, passing through any extra arguments."""
+    cli = get_cli(name)
+    if not cli:
+        click.secho(f"CLI '{name}' not found in registry.", fg="red", err=True)
+        raise SystemExit(1)
+
+    entry = cli["entry_point"]
+    if not shutil.which(entry):
+        click.secho(
+            f"'{entry}' not found on PATH. Install it first: cli-hub install {name}",
+            fg="red",
+            err=True,
+        )
+        raise SystemExit(1)
+
+    track_launch(name)
+    os.execvp(entry, [entry] + list(args))
+
+
+@main.group(name="previews", invoke_without_command=True)
+@click.pass_context
+def previews(ctx):
+    """Inspect existing preview bundles or live sessions; this command does not publish previews."""
+    if ctx.invoked_subcommand is None:
+        click.echo(ctx.get_help())
+
+
+@previews.command("inspect")
+@click.argument("preview_ref")
+@click.option("--json", "as_json", is_flag=True, help="Output preview metadata as JSON.")
+def preview_inspect(preview_ref, as_json):
+    """Inspect a preview bundle or live session."""
+    if is_live_session_ref(preview_ref):
+        payload = inspect_session(preview_ref)
+        if as_json:
+            click.echo(json_mod.dumps(payload, indent=2))
+            return
+        click.echo(render_session_text(preview_ref), nl=False)
+        return
+    if as_json:
+        click.echo(json_mod.dumps(inspect_bundle(preview_ref), indent=2))
+        return
+    click.echo(render_inspect_text(preview_ref), nl=False)
+
+
+@previews.command("html")
+@click.argument("preview_ref")
+@click.option("--output", "-o", "output_path", default=None, help="Output HTML path.")
+@click.option("--poll-ms", default=1500, show_default=True, help="Polling interval for live session pages.")
+def preview_html(preview_ref, output_path, poll_ms):
+    """Render HTML for a preview bundle or live session."""
+    if is_live_session_ref(preview_ref):
+        session_dir, _session = load_session(preview_ref)
+        if output_path is None:
+            output_path = os.path.join(session_dir, "live.html")
+        rendered = render_live_html(preview_ref, output_path, poll_ms=poll_ms)
+        click.echo(rendered)
+        return
+    if output_path is None:
+        payload = inspect_bundle(preview_ref)
+        output_path = os.path.join(payload["bundle_dir"], "preview.html")
+    rendered = render_html(preview_ref, output_path)
+    click.echo(rendered)
+
+
+def _serve_live_session(session_ref, poll_ms, auto_open, port):
+    session_dir, session = load_session(session_ref)
+    output_path = Path(session_dir) / "live.html"
+    render_live_html(session_ref, str(output_path), poll_ms=poll_ms)
+    server, base_url = start_static_server(str(session_dir), port=port)
+    live_url = f"{base_url}/live.html"
+    click.echo(f"Live preview URL: {live_url}")
+    if auto_open:
+        launched = open_in_browser(live_url)
+        if launched.get("launched"):
+            click.echo(f"Opened in {launched['browser']}: pid {launched['pid']}")
+        else:
+            click.echo(
+                "Browser launch unavailable. Open this manually:\n"
+                f"  {live_url}\n"
+                f"  Suggested command: {session.get('watch_command') or f'cli-hub previews watch {session_dir} --open'}"
+            )
+    click.echo("Press Ctrl-C to stop the live preview server.")
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        click.echo("\nStopped live preview server.")
+    finally:
+        server.server_close()
+
+
+@previews.command("watch")
+@click.argument("session_ref")
+@click.option("--poll-ms", default=1500, show_default=True, help="Polling interval for the live page.")
+@click.option("--port", default=0, show_default=True, help="Preferred localhost port. Use 0 for auto.")
+@click.option("--open/--no-open", "auto_open", default=False, help="Open a separate browser window.")
+def preview_watch(session_ref, poll_ms, port, auto_open):
+    """Serve and watch a live preview session."""
+    _serve_live_session(session_ref, poll_ms=poll_ms, auto_open=auto_open, port=port)
+
+
+@previews.command("open")
+@click.argument("preview_ref")
+@click.option("--output", "-o", "output_path", default=None, help="Override the generated HTML path.")
+@click.option("--poll-ms", default=1500, show_default=True, help="Polling interval when opening a live session.")
+@click.option("--port", default=0, show_default=True, help="Preferred localhost port for live sessions.")
+def preview_open(preview_ref, output_path, poll_ms, port):
+    """Open a preview bundle or live session in a browser window."""
+    if is_live_session_ref(preview_ref):
+        _serve_live_session(preview_ref, poll_ms=poll_ms, auto_open=True, port=port)
+        return
+    if output_path is None:
+        payload = inspect_bundle(preview_ref)
+        output_path = os.path.join(payload["bundle_dir"], "preview.html")
+    rendered = render_html(preview_ref, output_path)
+    launched = open_in_browser(Path(rendered).resolve().as_uri())
+    click.echo(rendered)
+    if launched.get("launched"):
+        click.echo(f"Opened in {launched['browser']}: pid {launched['pid']}")
+    else:
+        click.echo(f"Open this file manually: {rendered}")
+if __name__ == "__main__":
+    main()
+
+
+============================================================
+# 核心/安装器
+# 文件: cli-hub\cli_hub\installer.py
+============================================================
+"""Install, uninstall, and manage CLIs — dispatches to pip or npm based on source."""
+
+import json
+import shlex
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+from cli_hub.registry import get_cli
+
+INSTALLED_FILE = Path.home() / ".cli-hub" / "installed.json"
+
+
+def _load_installed():
+    if INSTALLED_FILE.exists():
+        try:
+            return json.loads(INSTALLED_FILE.read_text())
+        except json.JSONDecodeError:
+            pass
+    return {}
+
+
+def _save_installed(data):
+    INSTALLED_FILE.parent.mkdir(parents=True, exist_ok=True)
+    INSTALLED_FILE.write_text(json.dumps(data, indent=2))
+
+
+def _find_npm():
+    """Find npm executable. Returns path or None."""
+    return shutil.which("npm")
+
+
+def _find_uv():
+    """Find uv executable. Returns path or None."""
+    return shutil.which("uv")
+
+
+_UV_INSTALL_HINT = (
+    "uv is not installed. Install it first:\n"
+    "  macOS / Linux: curl -LsSf https://astral.sh/uv/install.sh | sh\n"
+    "  Windows:       powershell -ExecutionPolicy ByPass -c \"irm https://astral.sh/uv/install.ps1 | iex\"\n"
+    "  pip:           pip install uv\n"
+    "  brew:          brew install uv\n"
+    "  See also:      https://docs.astral.sh/uv/getting-started/installation/"
+)
+
+
+_SHELL_METACHARACTERS = ("|", "&&", "||", ";", "$(", "`")
+
+
+def _run_command(cmd):
+    """Run a command string.
+
+    Uses shell=True when the command contains shell operators (pipes, &&, etc.)
+    so that script-type installs like ``curl … | bash`` work correctly.
+    Commands come from the trusted registry, not from user input.
+    """
+    use_shell = any(c in cmd for c in _SHELL_METACHARACTERS)
+    try:
+        return subprocess.run(
+            cmd if use_shell else shlex.split(cmd),
+            capture_output=True,
+            text=True,
+            shell=use_shell,
+        )
+    except FileNotFoundError as exc:
+        missing = exc.filename or shlex.split(cmd)[0]
+        return subprocess.CompletedProcess(
+            args=cmd,
+            returncode=127,
+            stdout="",
+            stderr=f"Command not found: {missing}",
+        )
+
+
+def _command_exists(cmd):
+    """Check whether the executable for a command string exists on PATH."""
+    try:
+        parts = shlex.split(cmd)
+    except ValueError:
+        return False
+    if not parts:
+        return False
+    return shutil.which(parts[0]) is not None
+
+
+def _install_strategy(cli):
+    """Return the install strategy for a CLI entry."""
+    strategy = cli.get("install_strategy")
+    if strategy:
+        return strategy
+    if cli.get("_source", "harness") == "harness":
+        return "pip"
+    if cli.get("npm_package") or cli.get("package_manager") == "npm":
+        return "npm"
+    if cli.get("package_manager") == "uv":
+        return "uv"
+    if cli.get("package_manager") == "bundled":
+        return "bundled"
+    return "command"
+
+
+def _generic_install(cli):
+    install_cmd = cli.get("install_cmd")
+    if not install_cmd:
+        return False, f"No install command is defined for {cli['display_name']}."
+    result = _run_command(install_cmd)
+    if result.returncode == 0:
+        return True, f"Installed {cli['display_name']} ({cli['entry_point']})"
+    return False, f"Install failed:\n{result.stderr or result.stdout}"
+
+
+def _generic_uninstall(cli):
+    uninstall_cmd = cli.get("uninstall_cmd")
+    if not uninstall_cmd:
+        note = cli.get("uninstall_notes") or f"No uninstall command is defined for {cli['display_name']}."
+        return False, note
+    result = _run_command(uninstall_cmd)
+    if result.returncode == 0:
+        return True, f"Uninstalled {cli['display_name']}"
+    return False, f"Uninstall failed:\n{result.stderr or result.stdout}"
+
+
+def _generic_update(cli):
+    update_cmd = cli.get("update_cmd")
+    if not update_cmd:
+        note = cli.get("update_notes") or f"No update command is defined for {cli['display_name']}."
+        return False, note
+    result = _run_command(update_cmd)
+    if result.returncode == 0:
+        return True, f"Updated {cli['display_name']}"
+    return False, f"Update failed:\n{result.stderr or result.stdout}"
+
+
+def _bundled_install(cli):
+    detect_cmd = cli.get("detect_cmd") or cli.get("entry_point")
+    if detect_cmd and _command_exists(detect_cmd):
+        return True, f"{cli['display_name']} is already available ({cli['entry_point']})"
+    note = cli.get("install_notes") or (
+        f"{cli['display_name']} is bundled with its parent app. "
+        "Install or enable it in the upstream app first, then run this command again."
+    )
+    return False, note
+
+
+def _bundled_uninstall(cli):
+    note = cli.get("uninstall_notes") or (
+        f"{cli['display_name']} is bundled with its parent app. "
+        "Disable it in the upstream app or uninstall the parent app manually."
+    )
+    return False, note
+
+
+def _bundled_update(cli):
+    note = cli.get("update_notes") or (
+        f"{cli['display_name']} is bundled with its parent app. "
+        "Update the parent app to update this CLI."
+    )
+    return False, note
+
+
+# ── pip operations (harness CLIs) ──
+
+
+def _pip_install(cli):
+    install_cmd = cli["install_cmd"]
+    result = subprocess.run(
+        [sys.executable, "-m", "pip", "install"] + install_cmd.replace("pip install ", "").split(),
+        capture_output=True, text=True
+    )
+    if result.returncode == 0:
+        return True, f"Installed {cli['display_name']} ({cli['entry_point']})"
+    return False, f"pip install failed:\n{result.stderr}"
+
+
+def _pip_uninstall(cli):
+    pkg_name = f"cli-anything-{cli['name']}"
+    result = subprocess.run(
+        [sys.executable, "-m", "pip", "uninstall", "-y", pkg_name],
+        capture_output=True, text=True
+    )
+    if result.returncode == 0:
+        return True, f"Uninstalled {cli['display_name']}"
+    return False, f"pip uninstall failed:\n{result.stderr}"
+
+
+def _pip_update(cli):
+    install_cmd = cli["install_cmd"]
+    result = subprocess.run(
+        [sys.executable, "-m", "pip", "install", "--upgrade", "--force-reinstall"]
+        + install_cmd.replace("pip install ", "").split(),
+        capture_output=True, text=True
+    )
+    if result.returncode == 0:
+        return True, f"Updated {cli['display_name']} to {cli['version']}"
+    return False, f"Update failed:\n{result.stderr}"
+
+
+# ── uv operations (public CLIs) ──
+
+
+def _uv_install(cli):
+    if _find_uv() is None:
+        return False, _UV_INSTALL_HINT
+    result = _run_command(cli["install_cmd"])
+    if result.returncode == 0:
+        return True, f"Installed {cli['display_name']} ({cli['entry_point']})"
+    return False, f"uv install failed:\n{result.stderr or result.stdout}"
+
+
+def _uv_uninstall(cli):
+    if _find_uv() is None:
+        return False, _UV_INSTALL_HINT
+    uninstall_cmd = cli.get("uninstall_cmd")
+    if not uninstall_cmd:
+        return False, f"No uninstall command is defined for {cli['display_name']}."
+    result = _run_command(uninstall_cmd)
+    if result.returncode == 0:
+        return True, f"Uninstalled {cli['display_name']}"
+    return False, f"uv uninstall failed:\n{result.stderr or result.stdout}"
+
+
+def _uv_update(cli):
+    if _find_uv() is None:
+        return False, _UV_INSTALL_HINT
+    update_cmd = cli.get("update_cmd")
+    if not update_cmd:
+        return False, f"No update command is defined for {cli['display_name']}."
+    result = _run_command(update_cmd)
+    if result.returncode == 0:
+        return True, f"Updated {cli['display_name']}"
+    return False, f"uv update failed:\n{result.stderr or result.stdout}"
+
+
+# ── npm operations (public CLIs) ──
+
+
+def _npm_install(cli):
+    npm = _find_npm()
+    if npm is None:
+        return False, (
+            "npm is not installed. Install Node.js first:\n"
+            "  macOS: brew install node\n"
+            "  Linux: curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo -E bash - && sudo apt-get install -y nodejs\n"
+            "  Windows: Download from https://nodejs.org"
+        )
+    result = subprocess.run(
+        [npm, "install", "-g", cli["npm_package"]],
+        capture_output=True, text=True
+    )
+    if result.returncode == 0:
+        return True, f"Installed {cli['display_name']} ({cli['entry_point']})"
+    return False, f"npm install failed:\n{result.stderr}"
+
+
+def _npm_uninstall(cli):
+    npm = _find_npm()
+    if npm is None:
+        return False, "npm is not installed."
+    result = subprocess.run(
+        [npm, "uninstall", "-g", cli["npm_package"]],
+        capture_output=True, text=True
+    )
+    if result.returncode == 0:
+        return True, f"Uninstalled {cli['display_name']}"
+    return False, f"npm uninstall failed:\n{result.stderr}"
+
+
+def _npm_update(cli):
+    npm = _find_npm()
+    if npm is None:
+        return False, "npm is not installed."
+    result = subprocess.run(
+        [npm, "install", "-g", cli["npm_package"] + "@latest"],
+        capture_output=True, text=True
+    )
+    if result.returncode == 0:
+        return True, f"Updated {cli['display_name']} to latest"
+    return False, f"Update failed:\n{result.stderr}"
+
+
+def _perform_action(cli, action):
+    """Dispatch install/uninstall/update based on CLI strategy."""
+    strategy = _install_strategy(cli)
+    actions = {
+        "pip": {"install": _pip_install, "uninstall": _pip_uninstall, "update": _pip_update},
+        "npm": {"install": _npm_install, "uninstall": _npm_uninstall, "update": _npm_update},
+        "uv": {"install": _uv_install, "uninstall": _uv_uninstall, "update": _uv_update},
+        "command": {"install": _generic_install, "uninstall": _generic_uninstall, "update": _generic_update},
+        "bundled": {"install": _bundled_install, "uninstall": _bundled_uninstall, "update": _bundled_update},
+    }
+    handler = actions.get(strategy, actions["command"]).get(action)
+    return strategy, handler(cli)
+
+
+def _installed_entry(cli, source, strategy):
+    """Return the installed.json payload for a CLI."""
+    entry = {
+        "version": cli["version"],
+        "entry_point": cli["entry_point"],
+        "source": source,
+        "strategy": strategy,
+    }
+    if cli.get("package_manager"):
+        entry["package_manager"] = cli["package_manager"]
+    if cli.get("npm_package"):
+        entry["npm_package"] = cli["npm_package"]
+    if cli.get("install_cmd"):
+        entry["install_cmd"] = cli["install_cmd"]
+    if cli.get("uninstall_cmd"):
+        entry["uninstall_cmd"] = cli["uninstall_cmd"]
+    if cli.get("update_cmd"):
+        entry["update_cmd"] = cli["update_cmd"]
+    return entry
+
+
+# ── Unified interface ──
+
+
+def install_cli(name):
+    """Install a CLI by name. Dispatches to pip or npm based on source. Returns (success, message)."""
+    cli = get_cli(name)
+    if cli is None:
+        return False, f"CLI '{name}' not found in registry. Use 'cli-hub list' to see available CLIs."
+
+    source = cli.get("_source", "harness")
+    strategy, (success, msg) = _perform_action(cli, "install")
+
+    if success:
+        installed = _load_installed()
+        installed[cli["name"]] = _installed_entry(cli, source, strategy)
+        _save_installed(installed)
+
+    return success, msg
+
+
+def uninstall_cli(name):
+    """Uninstall a CLI by name. Returns (success, message)."""
+    cli = get_cli(name)
+    if cli is None:
+        return False, f"CLI '{name}' not found in registry."
+
+    _, (success, msg) = _perform_action(cli, "uninstall")
+
+    if success:
+        installed = _load_installed()
+        installed.pop(cli["name"], None)
+        _save_installed(installed)
+
+    return success, msg
+
+
+def update_cli(name):
+    """Update a CLI by reinstalling. Returns (success, message)."""
+    cli = get_cli(name, force_refresh=True)
+    if cli is None:
+        return False, f"CLI '{name}' not found in registry."
+
+    source = cli.get("_source", "harness")
+    strategy, (success, msg) = _perform_action(cli, "update")
+
+    if success:
+        installed = _load_installed()
+        installed[cli["name"]] = _installed_entry(cli, source, strategy)
+        _save_installed(installed)
+
+    return success, msg
+
+
+def get_installed():
+    """Return dict of installed CLIs."""
+    return _load_installed()
+
+
+============================================================
+# 核心/注册表
+# 文件: cli-hub\cli_hub\registry.py
+============================================================
+"""Fetch, cache, and merge the CLI-Anything registries (harness + public)."""
+
+import json
+import time
+from pathlib import Path
+
+import requests
+
+REGISTRY_URL = "https://hkuds.github.io/CLI-Anything/registry.json"
+PUBLIC_REGISTRY_URL = "https://hkuds.github.io/CLI-Anything/public_registry.json"
+CACHE_DIR = Path.home() / ".cli-hub"
+CACHE_FILE = CACHE_DIR / "registry_cache.json"
+PUBLIC_CACHE_FILE = CACHE_DIR / "public_registry_cache.json"
+CACHE_TTL = 3600  # 1 hour
+
+
+def _ensure_cache_dir():
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _load_cached_data(cache_file):
+    """Return cached registry data if the cache file is valid."""
+    if not cache_file.exists():
+        return None
+    try:
+        cached = json.loads(cache_file.read_text())
+        return cached["data"]
+    except (json.JSONDecodeError, KeyError):
+        return None
+
+
+def _fetch_json(url, cache_file, force_refresh=False):
+    """Fetch a JSON URL with local file caching."""
+    _ensure_cache_dir()
+
+    if not force_refresh and cache_file.exists():
+        try:
+            cached = json.loads(cache_file.read_text())
+            if time.time() - cached.get("_cached_at", 0) < CACHE_TTL:
+                return cached["data"]
+        except (json.JSONDecodeError, KeyError):
+            pass
+
+    try:
+        resp = requests.get(url, timeout=15)
+        resp.raise_for_status()
+        data = resp.json()
+    except (requests.RequestException, ValueError):
+        cached_data = _load_cached_data(cache_file)
+        if cached_data is not None:
+            return cached_data
+        raise
+
+    cache_payload = {"_cached_at": time.time(), "data": data}
+    cache_file.write_text(json.dumps(cache_payload, indent=2))
+
+    return data
+
+
+def fetch_registry(force_refresh=False):
+    """Fetch the harness registry.json."""
+    return _fetch_json(REGISTRY_URL, CACHE_FILE, force_refresh)
+
+
+def fetch_public_registry(force_refresh=False):
+    """Fetch the public CLI registry. Returns None on failure."""
+    try:
+        return _fetch_json(PUBLIC_REGISTRY_URL, PUBLIC_CACHE_FILE, force_refresh)
+    except Exception:
+        return None
+
+
+def fetch_all_clis(force_refresh=False):
+    """Fetch and merge both registries. Each CLI is tagged with _source."""
+    registry = fetch_registry(force_refresh)
+    all_clis = []
+
+    for cli in registry["clis"]:
+        entry = dict(cli)
+        entry["_source"] = "harness"
+        all_clis.append(entry)
+
+    public = fetch_public_registry(force_refresh)
+    if public:
+        for cli in public["clis"]:
+            entry = dict(cli)
+            entry["_source"] = "public"
+            all_clis.append(entry)
+
+    return all_clis
+
+
+def get_cli(name, force_refresh=False):
+    """Look up a CLI entry by name (case-insensitive) across both registries."""
+    name_lower = name.lower()
+    for cli in fetch_all_clis(force_refresh):
+        if cli["name"].lower() == name_lower:
+            return cli
+    return None
+
+
+def search_clis(query, force_refresh=False):
+    """Search CLIs by name, description, or category across both registries."""
+    query_lower = query.lower()
+    results = []
+    for cli in fetch_all_clis(force_refresh):
+        if (query_lower in cli["name"].lower()
+                or query_lower in cli["description"].lower()
+                or query_lower in cli.get("category", "").lower()
+                or query_lower in cli.get("display_name", "").lower()):
+            results.append(cli)
+    return results
+
+
+def list_categories(force_refresh=False):
+    """Return sorted list of unique categories across both registries."""
+    return sorted(set(cli.get("category", "uncategorized") for cli in fetch_all_clis(force_refresh)))
+
+
+============================================================
+# 文档/Agent适配层说明
+# 文件: cli-anything-plugin\HARNESS.md
+============================================================
+# Agent Harness: GUI-to-CLI for Open Source Software
+
+## Purpose
+
+This harness provides a standard operating procedure (SOP) and toolkit for coding
+agents (Claude Code, Codex, etc.) to build powerful, stateful CLI interfaces for
+open-source GUI applications. The goal: let AI agents operate software that was
+designed for humans, without needing a display or mouse.
+
+## General SOP: Turning Any GUI App into an Agent-Usable CLI
+
+### Phase 1: Codebase Analysis
+
+1. **Identify the backend engine** — Most GUI apps separate presentation from logic.
+   Find the core library/framework (e.g., MLT for Shotcut, ImageMagick for GIMP).
+2. **Map GUI actions to API calls** — Every button click, drag, and menu item
+   corresponds to a function call. Catalog these mappings.
+3. **Identify the data model** — What file formats does it use? How is project state
+   represented? (XML, JSON, binary, database?)
+4. **Find existing CLI tools** — Many backends ship their own CLI (`melt`, `ffmpeg`,
+   `convert`). These are building blocks.
+5. **Catalog the command/undo system** — If the app has undo/redo, it likely uses a
+   command pattern. These commands are your CLI operations.
+
+### Phase 2: CLI Architecture Design
+
+1. **Choose the interaction model**:
+   - **Stateful REPL** for interactive sessions (agents that maintain context)
+   - **Subcommand CLI** for one-shot operations (scripting, pipelines)
+   - **Both** (recommended) — a CLI that works in both modes
+
+2. **Define command groups** matching the app's logical domains:
+   - Project management (new, open, save, close)
+   - Core operations (the app's primary purpose)
+   - Import/Export (file I/O, format conversion)
+   - Configuration (settings, preferences, profiles)
+   - Session/State management (undo, redo, history, status)
+
+3. **Design the state model**:
+   - What must persist between commands? (open project, cursor position, selection)
+   - Where is state stored? (in-memory for REPL, file-based for CLI)
+   - How does state serialize? (JSON session files)
+
+4. **Plan the output format**:
+   - Human-readable (tables, colors) for interactive use
+   - Machine-readable (JSON) for agent consumption
+   - Both, controlled by `--json` flag
+
+### Phase 3: Implementation
+
+1. **Start with the data layer** — XML/JSON manipulation of project files
+2. **Add probe/info commands** — Let agents inspect before they modify
+3. **Add mutation commands** — One command per logical operation
+4. **Add the backend integration** — A `utils/<software>_backend.py` module that
+   wraps the real software's CLI. This module handles:
+   - Finding the software executable (`shutil.which()`)
+   - Invoking it with proper arguments (`subprocess.run()`)
+   - Error handling with clear install instructions if not found
+   - Example (LibreOffice):
+     ```python
+     # utils/lo_backend.py
+     def convert_odf_to(odf_path, output_format, output_path=None, overwrite=False):
+         lo = find_libreoffice()  # raises RuntimeError with install instructions
+         subprocess.run([lo, "--headless", "--convert-to", output_format, ...])
+         return {"output": final_path, "format": output_format, "method": "libreoffice-headless"}
+     ```
+5. **Add rendering/export** — The export pipeline calls the backend module.
+   Generate valid intermediate files, then invoke the real software for conversion.
+6. **Add session management** — State persistence, undo/redo
+
+   **Session file locking** — Use exclusive file locking for session JSON saves
+   to prevent concurrent write corruption. See [`guides/session-locking.md`](guides/session-locking.md)
+   for the `_locked_save_json` pattern (open `"r+"`, lock, then truncate inside the lock).
+7. **Add the REPL with unified skin** — Interactive mode wrapping the subcommands.
+   - Copy `repl_skin.py` from the plugin (`cli-anything-plugin/repl_skin.py`) into
+     `utils/repl_skin.py` in your CLI package
+   - Import and use `ReplSkin` for the REPL interface:
+     ```python
+     from cli_anything.<software>.utils.repl_skin import ReplSkin
+
+     skin = ReplSkin("<software>", version="1.0.0")
+     skin.print_banner()          # Branded startup box (prefers repo-root skills/, falls back to package)
+     pt_session = skin.create_prompt_session()  # prompt_toolkit with history + styling
+     line = skin.get_input(pt_session, project_name="my_project", modified=True)
+     skin.help(commands_dict)     # Formatted help listing
+     skin.success("Saved")        # ✓ green message
+     skin.error("Not found")      # ✗ red message
+     skin.warning("Unsaved")      # ⚠ yellow message
+     skin.info("Processing...")   # ● blue message
+     skin.status("Key", "value")  # Key-value status line
+     skin.table(headers, rows)    # Formatted table
+     skin.progress(3, 10, "...")  # Progress bar
+     skin.print_goodbye()         # Styled exit message
+     ```
+   - ReplSkin prefers the repo-root canonical `skills/cli-anything-<software>/SKILL.md`
+     when running inside this monorepo, and falls back to the packaged
+     `cli_anything/<software>/skills/SKILL.md` copy when installed elsewhere.
+     AI agents can read the skill file at the displayed absolute path.
+   - Make REPL the default behavior: use `invoke_without_command=True` on the main
+     Click group, and invoke the `repl` command when no subcommand is given:
+     ```python
+     @click.group(invoke_without_command=True)
+     @click.pass_context
+     def cli(ctx, ...):
+         ...
+         if ctx.invoked_subcommand is None:
+             ctx.invoke(repl, project_path=None)
+     ```
+   - This ensures `cli-anything-<software>` with no arguments enters the REPL
+
+### Phase 4: Test Planning (TEST.md - Part 1)
+
+**BEFORE writing any test code**, create a `TEST.md` file in the
+`agent-harness/cli_anything/<software>/tests/` directory. This file serves as your test plan and
+MUST contain:
+
+1. **Test Inventory Plan** — List planned test files and estimated test counts:
+   - `test_core.py`: XX unit tests planned
+   - `test_full_e2e.py`: XX E2E tests planned
+
+2. **Unit Test Plan** — For each core module, describe what will be tested:
+   - Module name (e.g., `project.py`)
+   - Functions to test
+   - Edge cases to cover (invalid inputs, boundary conditions, error handling)
+   - Expected test count
+
+3. **E2E Test Plan** — Describe the real-world scenarios to test:
+   - What workflows will be simulated?
+   - What real files will be generated/processed?
+   - What output properties will be verified?
+   - What format validations will be performed?
+
+4. **Realistic Workflow Scenarios** — Detail each multi-step workflow:
+   - **Workflow name**: Brief title
+   - **Simulates**: What real-world task (e.g., "photo editing pipeline",
+     "podcast production", "product render setup")
+   - **Operations chained**: Step-by-step operations
+   - **Verified**: What output properties will be checked
+
+This planning document ensures comprehensive test coverage before writing code.
+
+### Phase 5: Test Implementation
+
+Now write the actual test code based on the TEST.md plan:
+
+1. **Unit tests** (`test_core.py`) — Every core function tested in isolation with
+   synthetic data. No external dependencies.
+2. **E2E tests — intermediate files** (`test_full_e2e.py`) — Verify the project files
+   your CLI generates are structurally correct (valid XML, correct ZIP structure, etc.)
+3. **E2E tests — true backend** (`test_full_e2e.py`) — **MUST invoke the real software.**
+   Create a project, export via the actual software backend, and verify the output:
+   - File exists and size > 0
+   - Correct format (PDF magic bytes `%PDF-`, DOCX/XLSX/PPTX is valid ZIP/OOXML, etc.)
+   - Content verification where possible (CSV contains expected data, etc.)
+   - **Print artifact paths** so users can manually inspect: `print(f"\n  PDF: {path} ({size:,} bytes)")`
+   - **No graceful degradation** — if the software isn't installed, tests fail, not skip
+4. **Output verification** — **Don't trust that export works just because it exits
+   successfully.** Verify outputs programmatically:
+   - Magic bytes / file format validation
+   - ZIP structure for OOXML formats (DOCX, XLSX, PPTX)
+   - Pixel-level analysis for video/images (probe frames, compare brightness)
+   - Audio analysis (RMS levels, spectral comparison)
+   - Duration/format checks against expected values
+5. **CLI subprocess tests** — Test the installed CLI command as a real user/agent would.
+   The subprocess tests MUST also produce real final output (not just ODF intermediate).
+   Use the `_resolve_cli` helper to run the installed `cli-anything-<software>` command:
+   ```python
+   def _resolve_cli(name):
+       """Resolve installed CLI command; falls back to python -m for dev.
+
+       Set env CLI_ANYTHING_FORCE_INSTALLED=1 to require the installed command.
+       """
+       import shutil
+       force = os.environ.get("CLI_ANYTHING_FORCE_INSTALLED", "").strip() == "1"
+       path = shutil.which(name)
+       if path:
+           print(f"[_resolve_cli] Using installed command: {path}")
+           return [path]
+       if force:
+           raise RuntimeError(f"{name} not found in PATH. Install with: pip install -e .")
+       module = name.replace("cli-anything-", "cli_anything.") + "." + name.split("-")[-1] + "_cli"
+       print(f"[_resolve_cli] Falling back to: {sys.executable} -m {module}")
+       return [sys.executable, "-m", module]
+
+
+   class TestCLISubprocess:
+       CLI_BASE = _resolve_cli("cli-anything-<software>")
+
+       def _run(self, args, check=True):
+           return subprocess.run(
+               self.CLI_BASE + args,
+               capture_output=True, text=True,
+               check=check,
+           )
+
+       def test_help(self):
+           result = self._run(["--help"])
+           assert result.returncode == 0
+
+       def test_project_new_json(self, tmp_dir):
+           out = os.path.join(tmp_dir, "test.json")
+           result = self._run(["--json", "project", "new", "-o", out])
+           assert result.returncode == 0
+           data = json.loads(result.stdout)
+           # ... verify structure
+   ```
+
+   **Key rules for subprocess tests:**
+   - Always use `_resolve_cli("cli-anything-<software>")` — never hardcode
+     `sys.executable` or module paths directly
+   - Do NOT set `cwd` — installed commands must work from any directory
+   - Use `CLI_ANYTHING_FORCE_INSTALLED=1` in CI/release testing to ensure the
+     installed command (not a fallback) is being tested
+   - Test `--help`, `--json`, project creation, key commands, and full workflows
+
+6. **Round-trip test** — Create project via CLI, open in GUI, verify correctness
+7. **Agent test** — Have an AI agent complete a real task using only the CLI
+
+### Phase 6: Test Documentation (TEST.md - Part 2)
+
+After running all tests successfully, **append** to the existing TEST.md:
+
+1. **Test Results** — Paste the full `pytest -v --tb=no` output showing all tests
+   passing with their names and status
+2. **Summary Statistics** — Total tests, pass rate, execution time
+3. **Coverage Notes** — Any gaps or areas not covered by tests
+
+The TEST.md now serves as both the test plan (written before implementation) and
+the test results documentation (appended after execution), providing a complete
+record of the testing process.
+
+### Phase 6.5: SKILL.md Generation
+
+Generate a SKILL.md file that makes the CLI discoverable and usable by AI agents
+through the skill-creator methodology. This file serves as a self-contained skill
+definition that can be loaded by Claude Code or other AI assistants.
+
+**Purpose:** SKILL.md files follow a standard format that enables AI agents to:
+- Discover the CLI's capabilities
+- Understand command structure and usage
+- Generate correct command invocations
+- Handle output programmatically
+
+**SKILL.md Structure:**
+
+1. **YAML Frontmatter** — Triggering metadata for skill discovery:
+   ```yaml
+   ---
+   name: "cli-anything-<software>"
+   description: "Brief description of what the CLI does"
+   ---
+   ```
+
+2. **Markdown Body** — Installation prerequisites, command syntax, command groups,
+   usage examples, and agent-specific guidance (JSON output, error handling).
+
+**Generation & Customization:** Use `skill_generator.py` to extract CLI metadata
+automatically, or customize via the Jinja2 template at `templates/SKILL.md.template`.
+See [`guides/skill-generation.md`](guides/skill-generation.md) for the full generation
+process, template customization options, and manual generation commands.
+
+**Output Location:** The canonical skill lives at
+`skills/cli-anything-<software>/SKILL.md`. A compatibility copy is also written to
+`cli_anything/<software>/skills/SKILL.md` so installed harnesses still ship a
+local skill file.
+
+**Key Principles:**
+
+- SKILL.md must be self-contained (no external dependencies for understanding)
+- Include agent-specific guidance for programmatic usage
+- Document `--json` flag usage for machine-readable output
+- List all command groups with brief descriptions
+- Provide realistic examples that demonstrate common workflows
+- If the harness supports previews, document the producer surface
+  (`cli-anything-<software> preview ...`) and the consumer surface
+  (`cli-hub previews ...`) separately in both `README.md` and `SKILL.md`
+- If the harness supports live preview, explain what `preview live status --json`
+  returns and how agents should use it as a cheap introspection call
+
+**Skill Path in CLI Banner:**
+
+ReplSkin prefers the repo-root canonical skill path and falls back to the
+packaged `skills/SKILL.md` copy. AI agents can read the displayed path to learn
+the CLI's full capabilities.
+
+**Package Data:** Ensure `setup.py` includes the skill file so it ships with pip:
+
+```python
+package_data={
+    "cli_anything.<software>": ["skills/*.md"],
+},
+```
+
+### Phase 7: PyPI Publishing and Installation
+
+After building and testing the CLI, make it installable and discoverable using
+**PEP 420 namespace packages** under the shared `cli_anything` namespace.
+
+See [`guides/pypi-publishing.md`](guides/pypi-publishing.md) for the full setup.py template,
+namespace package structure, import conventions, and verification steps.
+
+**Key rule:** `cli_anything/` has **no** `__init__.py` (namespace package). Each
+sub-package (`gimp/`, `blender/`, etc.) **does** have `__init__.py`.
+
+## Architecture Patterns & Pitfalls
+
+### Use the Real Software — Don't Reimplement It
+
+**This is the #1 rule.** The CLI MUST call the actual software for rendering and
+export — not reimplement the software's functionality in Python.
+
+**The anti-pattern:** Building a Pillow-based image compositor to replace GIMP,
+or generating bpy scripts without ever calling Blender. This produces a toy that
+can't handle real workloads and diverges from the actual software's behavior.
+
+**The correct approach:**
+1. **Use the software's CLI/scripting interface** as the backend:
+   - LibreOffice: `libreoffice --headless --convert-to pdf/docx/xlsx/pptx`
+   - Blender: `blender --background --python script.py`
+   - GIMP: `gimp -i -b '(script-fu-console-eval ...)'`
+   - Inkscape: `inkscape --actions="..." --export-filename=...`
+   - Shotcut/Kdenlive: `melt project.mlt -consumer avformat:output.mp4`
+   - Audacity: `sox` for effects processing
+   - OBS: `obs-websocket` protocol
+
+2. **The software is a required dependency**, not optional. Add it to installation
+   instructions. The CLI is useless without the actual software.
+
+3. **Generate valid project/intermediate files** (ODF, MLT XML, .blend, SVG, etc.)
+   then hand them to the real software for rendering. Your CLI is a structured
+   command-line interface to the software, not a replacement for it.
+
+**Example — LibreOffice CLI export pipeline:**
+```python
+# 1. Build the document as a valid ODF file (our XML builder)
+odf_path = write_odf(tmp_path, doc_type, project)
+
+# 2. Convert via the REAL LibreOffice (not a reimplementation)
+subprocess.run([
+    "libreoffice", "--headless",
+    "--convert-to", "pdf",
+    "--outdir", output_dir,
+    odf_path,
+])
+# Result: a real PDF rendered by LibreOffice's full engine
+```
+
+### The Rendering Gap
+
+**This is the #2 pitfall.** Most GUI apps apply effects at render time via their
+engine. When you build a CLI that manipulates project files directly, you must also
+handle rendering — and naive approaches will silently drop effects.
+
+**The problem:** Your CLI adds filters/effects to the project file format. But when
+rendering, if you use a simple tool (e.g., ffmpeg concat demuxer), it reads raw
+media files and **ignores** all project-level effects. The output looks identical to
+the input. Users can't tell anything happened.
+
+**The solution — a filter translation layer:**
+1. **Best case:** Use the app's native renderer (`melt` for MLT projects). It reads
+   the project file and applies everything.
+2. **Fallback:** Build a translation layer that converts project-format effects into
+   the rendering tool's native syntax (e.g., MLT filters → ffmpeg `-filter_complex`).
+3. **Last resort:** Generate a render script the user can run manually.
+
+**Priority order for rendering:** native engine → translated filtergraph → script.
+
+### MCP Backend Pattern
+
+For software that exposes an MCP (Model Context Protocol) server instead of a traditional
+CLI (e.g., DOMShell for browser automation). See [`guides/mcp-backend.md`](guides/mcp-backend.md)
+for the full backend wrapper pattern, session management, daemon mode, and example implementations.
+
+**Use when:** no native CLI exists, software has an MCP server, or you need agent-native tool integration.
+
+### Filter Translation Pitfalls
+
+When translating effects between formats (e.g., MLT → ffmpeg), watch for duplicate filter
+merging, interleaved stream ordering, parameter scale differences, and unmappable effects.
+See [`guides/filter-translation.md`](guides/filter-translation.md) for detailed rules and examples.
+
+### Timecode Precision
+
+Non-integer frame rates (29.97fps) cause cumulative rounding errors. Key rules: use
+`round()` not `int()`, use integer arithmetic for display, accept ±1 frame tolerance.
+See [`guides/timecode-precision.md`](guides/timecode-precision.md) for the full approach.
+
+### Output Verification Methodology
+
+Never assume an export is correct just because it ran without errors. Verify:
+
+```python
+# Video: probe specific frames with ffmpeg
+# Frame 0 for fade-in (should be near-black)
+# Middle frames for color effects (compare brightness/saturation vs source)
+# Last frame for fade-out (should be near-black)
+
+# When comparing pixel values between different resolutions,
+# exclude letterboxing/pillarboxing (black padding bars).
+# A vertical video in a horizontal frame will have ~40% black pixels.
+
+# Audio: check RMS levels at start/end for fades
+# Compare spectral characteristics against source
+```
+
+### Testing Strategy
+
+Four test layers with complementary purposes:
+
+1. **Unit tests** (`test_core.py`): Synthetic data, no external dependencies. Tests
+   every function in isolation. Fast, deterministic, good for CI.
+2. **E2E tests — native** (`test_full_e2e.py`): Tests the project file generation
+   pipeline (ODF structure, XML content, format validation). Verifies the
+   intermediate files your CLI produces are correct.
+3. **E2E tests — true backend** (`test_full_e2e.py`): Invokes the **real software**
+   (LibreOffice, Blender, melt, etc.) to produce final output files (PDF, DOCX,
+   rendered images, videos). Verifies the output files:
+   - Exist and have size > 0
+   - Have correct format (magic bytes, ZIP structure, etc.)
+   - Contain expected content where verifiable
+   - **Print artifact paths** so users can manually inspect results
+4. **CLI subprocess tests** (in `test_full_e2e.py`): Invokes the installed
+   `cli-anything-<software>` command via `subprocess.run` to run the full workflow
+   end-to-end: create project → add content → export via real software → verify output.
+
+**No graceful degradation.** The real software MUST be installed. Tests must NOT
+skip or fake results when the software is missing — the CLI is useless without it.
+The software is a hard dependency, not optional.
+
+**Example — true E2E test for LibreOffice:**
+```python
+class TestWriterToPDF:
+    def test_rich_writer_to_pdf(self, tmp_dir):
+        proj = create_document(doc_type="writer", name="Report")
+        add_heading(proj, text="Quarterly Report", level=1)
+        add_table(proj, rows=3, cols=3, data=[...])
+
+        pdf_path = os.path.join(tmp_dir, "report.pdf")
+        result = export(proj, pdf_path, preset="pdf", overwrite=True)
+
+        # Verify the REAL output file
+        assert os.path.exists(result["output"])
+        assert result["file_size"] > 1000  # Not suspiciously small
+        with open(result["output"], "rb") as f:
+            assert f.read(5) == b"%PDF-"  # Validate format magic bytes
+        print(f"\n  PDF: {result['output']} ({result['file_size']:,} bytes)")
+
+
+class TestCLISubprocessE2E:
+    CLI_BASE = _resolve_cli("cli-anything-libreoffice")
+
+    def test_full_writer_pdf_workflow(self, tmp_dir):
+        proj_path = os.path.join(tmp_dir, "test.json")
+        pdf_path = os.path.join(tmp_dir, "output.pdf")
+        self._run(["document", "new", "-o", proj_path, "--type", "writer"])
+        self._run(["--project", proj_path, "writer", "add-heading", "-t", "Title"])
+        self._run(["--project", proj_path, "export", "render", pdf_path, "-p", "pdf", "--overwrite"])
+        assert os.path.exists(pdf_path)
+        with open(pdf_path, "rb") as f:
+            assert f.read(5) == b"%PDF-"
+```
+
+   Run tests in force-installed mode to guarantee the real command is used:
+   ```bash
+   CLI_ANYTHING_FORCE_INSTALLED=1 python3 -m pytest cli_anything/<software>/tests/ -v -s
+   ```
+   The `-s` flag shows the `[_resolve_cli]` print output confirming which backend
+   is being used and **prints artifact paths** for manual inspection.
+
+Real-world workflow test scenarios should include:
+- Multi-segment editing (YouTube-style cut/trim)
+- Montage assembly (many short clips)
+- Picture-in-picture compositing
+- Color grading pipelines
+- Audio mixing (podcast-style)
+- Heavy undo/redo stress testing
+- Save/load round-trips of complex projects
+- Iterative refinement (add, modify, remove, re-add)
+
+## Principles & Rules
+
+These are non-negotiable. Every harness MUST follow all of them.
+
+**Backend & Rendering:**
+- **The real software is a hard dependency.** The CLI MUST invoke the actual application
+  (LibreOffice, Blender, GIMP, etc.) for rendering and export. Do NOT reimplement
+  rendering in Python. Do NOT gracefully degrade to a fallback library. If the software
+  is not installed, error with clear install instructions.
+- **Manipulate the native format directly** — Parse and modify the app's native project
+  files (MLT XML, ODF, SVG, etc.) as the data layer.
+- **Leverage existing CLI tools** — Use `libreoffice --headless`, `blender --background`,
+  `melt`, `ffmpeg`, `inkscape --actions`, `sox` as subprocesses for rendering.
+- **Verify rendering produces correct output** — See "The Rendering Gap" in
+  Architecture Patterns & Pitfalls above.
+- **Every filter/effect in the registry MUST have a corresponding render mapping**
+  or be explicitly documented as "project-only (not rendered)".
+
+**CLI Design:**
+- **Fail loudly and clearly** — Agents need unambiguous error messages to self-correct.
+- **Be idempotent where possible** — Running the same command twice should be safe.
+- **Provide introspection** — `info`, `list`, `status` commands are critical for agents
+  to understand current state before acting.
+- **Preview meaningful intermediate state** — Harnesses that can expose useful
+  visual checkpoints SHOULD implement a `preview` command group with at least
+  `preview recipes`, `preview capture`, and `preview latest`. Diff-oriented
+  tools SHOULD also expose `preview diff`.
+- **Keep producer and viewer roles separate** — Harnesses publish preview state
+  through `cli-anything-<software> preview ...`. `cli-hub previews ...` is the
+  read-only consumer for inspect/html/watch/open and should not be treated as a
+  render path.
+- **Use the shared preview bundle protocol** — Preview-capable harnesses SHOULD
+  emit `preview-bundle/v1` bundles as described in `docs/PREVIEW_PROTOCOL.md`.
+  The bundle is the contract; the renderer remains the real software.
+- **Live preview should separate head vs history** — When a harness supports
+  `preview live ...`, it SHOULD persist:
+  - `session.json` as the mutable current head
+  - immutable bundle directories for each capture
+  - `trajectory.json` as the append-only command-to-preview history
+- **Do not treat `_bundle_dir` as the permanent build identity** — It is only a
+  single snapshot path. Stable live replay should anchor on `session_dir` plus
+  `trajectory.json`.
+- **Make `preview live status --json` agent-cheap** — Live-preview harnesses
+  SHOULD include a compact `trajectory_summary` in `preview live status --json`
+  so agents do not need to read `trajectory.json` just to understand the latest
+  command-to-bundle mapping.
+- **Do not screen-scrape GUI windows for previews** — Preview artifacts must be
+  produced by the real backend or by native inspection/export paths operating
+  on real project/capture state.
+- **JSON output mode** — Every command MUST support `--json` for machine parsing.
+- **Use the unified REPL skin** — Copy `cli-anything-plugin/repl_skin.py` to
+  `utils/repl_skin.py` and use `ReplSkin` for banner, prompt, help, and messages.
+  REPL MUST be the default behavior (`invoke_without_command=True`).
+
+**Testing:**
+- **E2E tests MUST invoke the real software** and produce real output files (PDF, DOCX,
+  rendered images, videos). Verify output exists, has correct format (magic bytes, ZIP
+  structure), and print artifact paths for manual inspection. Never test only
+  intermediate files.
+- **Every export/render function MUST be verified** with programmatic output analysis.
+  "It ran without errors" is not sufficient.
+- **E2E tests MUST include subprocess tests** that invoke the installed
+  `cli-anything-<software>` command via `_resolve_cli()`. Tests must work against
+  the actual installed package, not just source imports.
+- **Test suites MUST include real-file E2E tests**, not just unit tests with synthetic
+  data. Format assumptions break constantly with real media.
+
+**Documentation:**
+- **Every `cli_anything/<software>/` directory MUST contain a `README.md`** explaining
+  how to install the software dependency, install the CLI, run tests, and basic usage.
+- **Every `cli_anything/<software>/tests/` directory MUST contain a `TEST.md`**
+  documenting test coverage, realistic workflows tested, and full test results output.
+
+### Preview & Live Preview Norms
+
+Preview support is optional at the harness level, but once a harness exposes
+meaningful intermediate visual or inspection state it MUST follow a consistent
+contract so agents and humans can reason about it across software.
+
+See [`guides/preview-methodology.md`](guides/preview-methodology.md) for the
+detailed design guide and documentation checklist.
+
+#### Producer vs consumer roles
+
+Keep these roles separate:
+
+- **Producer** — `cli-anything-<software> preview ...`
+  - talks to the real backend
+  - owns preview recipes, source fingerprinting, and live-session publishing
+  - creates bundles, sessions, and trajectories
+- **Consumer** — `cli-hub previews ...`
+  - reads already-published preview state
+  - provides `inspect`, `html`, `watch`, and `open`
+  - never renders, replays, or synthesizes preview artifacts
+
+Harness help text, README examples, and SKILL examples MUST not present
+`cli-hub previews ...` as a render path. Agents should think in two steps:
+publish with the software CLI, inspect with `cli-hub`.
+
+#### Three-layer persistence model
+
+Preview-capable harnesses SHOULD treat preview state as three separate objects:
+
+- **`bundle_dir`** — an immutable preview snapshot implementing
+  `preview-bundle/v1`
+- **`session.json`** — the mutable current head for a live preview stream
+- **`trajectory.json`** — the append-only permanent command-to-preview history
+
+Do not use `_bundle_dir` as the long-lived identity of a project. It is a
+single snapshot path and may change whenever the source fingerprint changes or a
+new bundle is forced. Stable live replay should anchor on `session_dir` plus
+`trajectory.json`.
+
+#### Recommended CLI surface
+
+If a harness has meaningful previewable state, it SHOULD expose at least:
+
+- `preview recipes`
+- `preview capture`
+- `preview latest`
+
+Add the following when the software semantics justify them:
+
+- `preview diff`
+- `preview live start`
+- `preview live push`
+- `preview live status`
+- `preview live stop`
+- an internal or hidden poll monitor when poll-first refresh is supported
+
+Recommended semantics:
+
+- `preview capture` renders or exports a fresh bundle unless cache reuse is valid
+- `preview latest` returns the newest existing bundle and does not render a new one
+- `preview diff` publishes an immutable comparison bundle
+- `preview live start` creates a live session and publishes an initial bundle
+- `preview live push` adds a new bundle to an existing live session
+- `preview live status` is a read-only status probe
+- `preview live stop` stops further publishing without deleting prior history
+
+#### Agent-facing JSON contract
+
+All preview commands MUST support `--json`.
+
+At minimum, machine-readable preview results SHOULD expose:
+
+- stable paths such as `_bundle_dir`, `_manifest_path`, and `summary_path`
+- artifact metadata and relative artifact paths
+- session metadata when live mode is involved
+- trajectory references when history exists
+
+`preview live status --json` is especially important because agents call it as a
+cheap introspection step between mutations. It SHOULD return:
+
+- whether a live session exists and whether it is active
+- `session_dir`, `session_path`, and current bundle identifiers or paths
+- current publish reason and latest command metadata when available
+- a compact `trajectory_summary` with the latest command-to-bundle mapping
+- viewer hints such as inspect/html/watch/open commands when the harness emits them
+
+The goal is to let an agent understand current live state without rereading the
+entire `trajectory.json` file.
+
+#### Documentation requirements for preview-capable harnesses
+
+Preview-capable harnesses SHOULD document preview usage in both `README.md` and
+`SKILL.md`. Cover:
+
+- whether preview support exists at all
+- which modes exist: static, diff, live, poll
+- the producer commands agents should call
+- the consumer commands humans should call with `cli-hub previews ...`
+- whether the output is images, video, audio-derived stills, inspection JSON, or mixed artifacts
+- what makes the preview truthful for this software
+
+Use concrete examples that show both the publish step and the inspect/watch
+step.
+
+#### Truthfulness principle
+
+Preview artifacts MUST be honest views of the real project or capture state.
+
+- Prefer real backend render/export/inspection paths.
+- Use native offscreen export or replay when the software provides it.
+- Do not fake renders in Python.
+- Do not screen-scrape GUI windows just to create something image-like.
+- If a temporary camera, light, or helper rig must be injected, mark the bundle
+  status accordingly and explain the limitation in summary/context output.
+
+Truthful previews matter more than pretty previews. Agents need intermediate
+state they can trust when deciding what to do next.
+
+## Directory Structure
+
+```
+<software>/
+└── agent-harness/
+    ├── <SOFTWARE>.md          # Project-specific analysis and SOP
+    ├── setup.py               # PyPI package configuration (Phase 7)
+    ├── cli_anything/          # Namespace package (NO __init__.py here)
+    │   └── <software>/        # Sub-package for this CLI
+    │       ├── __init__.py
+    │       ├── __main__.py    # python3 -m cli_anything.<software>
+    │       ├── README.md      # HOW TO RUN — required
+    │       ├── <software>_cli.py  # Main CLI entry point (Click + REPL)
+    │       ├── core/          # Core modules (one per domain)
+    │       │   ├── __init__.py
+    │       │   ├── project.py     # Project create/open/save/info
+    │       │   ├── ...            # Domain-specific modules
+    │       │   ├── export.py      # Render pipeline + filter translation
+    │       │   └── session.py     # Stateful session, undo/redo
+    │       ├── utils/         # Shared utilities
+    │       │   ├── __init__.py
+    │       │   ├── <software>_backend.py  # Backend: invokes the real software
+    │       │   └── repl_skin.py  # Unified REPL skin (copy from plugin)
+    │       └── tests/         # Test suites
+    │           ├── TEST.md        # Test documentation and results — required
+    │           ├── test_core.py   # Unit tests (synthetic data)
+    │           └── test_full_e2e.py # E2E tests (real files)
+    └── examples/              # Example scripts and workflows
+```
+
+**Critical:** The `cli_anything/` directory must NOT contain an `__init__.py`.
+This is what makes it a PEP 420 namespace package — multiple separately-installed
+PyPI packages can each contribute a sub-package under `cli_anything/` without
+conflicting. For example, `cli-anything-gimp` adds `cli_anything/gimp/` and
+`cli-anything-blender` adds `cli_anything/blender/`, and both coexist in the
+same Python environment.
+
+Note: This HARNESS.md is part of the cli-anything-plugin. Individual software directories reference this file — do NOT duplicate it.
+
+## Applying This to Other Software
+
+This same SOP applies to any GUI application:
+
+| Software | Backend CLI | Native Format | System Package | How the CLI Uses It |
+|----------|-------------|---------------|----------------|-------------------|
+| LibreOffice | `libreoffice --headless` | .odt/.ods/.odp (ODF ZIP) | `apt install libreoffice` | Generate ODF → convert to PDF/DOCX/XLSX/PPTX |
+| Blender | `blender --background --python` | .blend-cli.json | `apt install blender` | Generate bpy script → Blender renders to PNG/MP4 |
+| GIMP | `gimp -i -b '(script-fu ...)'` | .xcf | `apt install gimp` | Script-Fu commands → GIMP processes & exports |
+| Inkscape | `inkscape --actions="..."` | .svg (XML) | `apt install inkscape` | Manipulate SVG → Inkscape exports to PNG/PDF |
+| Shotcut/Kdenlive | `melt` or `ffmpeg` | .mlt (XML) | `apt install melt ffmpeg` | Build MLT XML → melt/ffmpeg renders video |
+| Audacity | `sox` | .aup3 | `apt install sox` | Generate sox commands → sox processes audio |
+| OBS Studio | `obs-websocket` | scene.json | `apt install obs-studio` | WebSocket API → OBS captures/records |
+| Browser (DOMShell) | `npx @apireno/domshell` (MCP) | Accessibility Tree (virtual FS) | `npm install -g npx` (if needed) + Chrome ext | MCP SDK → DOMShell tools → filesystem navigation |
+
+**The software is a required dependency, not optional.** The CLI generates valid
+intermediate files (ODF, MLT XML, bpy scripts, SVG) and hands them to the real
+software for rendering. This is what makes the CLI actually useful — it's a
+command-line interface TO the software, not a replacement for it.
+
+The pattern is always the same: **build the data → call the real software → verify
+the output**.
+
+## Guides Reference
+
+Detailed guides live in `guides/`. Use this table to decide which ones to read
+based on the software you're building a harness for.
+
+| Guide | Read when... | Phase |
+|-------|-------------|-------|
+| [`session-locking.md`](guides/session-locking.md) | Implementing session save (all harnesses) | Phase 3 |
+| [`preview-methodology.md`](guides/preview-methodology.md) | Designing preview, live preview, and agent-facing preview flows | Phase 3, 6.5 |
+| [`skill-generation.md`](guides/skill-generation.md) | Generating the SKILL.md file | Phase 6.5 |
+| [`pypi-publishing.md`](guides/pypi-publishing.md) | Packaging and installing the CLI | Phase 7 |
+| [`mcp-backend.md`](guides/mcp-backend.md) | Software has an MCP server, no native CLI | Phase 3 |
+| [`filter-translation.md`](guides/filter-translation.md) | Video/audio CLI with effects that need render-time translation | Phase 3 |
+| [`timecode-precision.md`](guides/timecode-precision.md) | Video/audio CLI with non-integer frame rates (29.97fps, etc.) | Phase 3, 5 |
+
+
+============================================================
+# 模板/Skill模板
+# 文件: cli-anything-plugin\templates\SKILL.md.template
+============================================================
+---
+name: >-
+  {{ skill_name }}
+description: >-
+  {{ skill_description }}
+---
+
+# {{ skill_name }}
+
+{{ skill_intro }}
+
+## Installation
+
+This CLI is installed as part of the cli-anything-{{ software_name }} package:
+
+```bash
+pip install cli-anything-{{ software_name }}
+```
+
+**Prerequisites:**
+- Python 3.10+
+- {{ software_name }} must be installed on your system
+{% if system_package %}
+- Install {{ software_name }}: `{{ system_package }}`
+{% endif %}
+
+## Usage
+
+### Basic Commands
+
+```bash
+# Show help
+cli-anything-{{ software_name }} --help
+
+# Start interactive REPL mode
+cli-anything-{{ software_name }}
+
+# Create a new project
+cli-anything-{{ software_name }} project new -o project.json
+
+# Run with JSON output (for agent consumption)
+cli-anything-{{ software_name }} --json project info -p project.json
+```
+
+### REPL Mode
+
+When invoked without a subcommand, the CLI enters an interactive REPL session:
+
+```bash
+cli-anything-{{ software_name }}
+# Enter commands interactively with tab-completion and history
+```
+
+{% if command_groups %}
+## Command Groups
+
+{% for group in command_groups %}
+### {{ group.name }}
+
+{{ group.description }}
+
+| Command | Description |
+|---------|-------------|
+{% for cmd in group.commands %}
+| `{{ cmd.name }}` | {{ cmd.description }} |
+{% endfor %}
+
+{% endfor %}
+{% endif %}
+## Examples
+
+{% for example in examples %}
+### {{ example.title }}
+
+{{ example.description }}
+
+```bash
+{{ example.code }}
+```
+
+{% endfor %}
+## State Management
+
+The CLI maintains session state with:
+
+- **Undo/Redo**: Up to 50 levels of history
+- **Project persistence**: Save/load project state as JSON
+- **Session tracking**: Track modifications and changes
+
+## Output Formats
+
+All commands support dual output modes:
+
+- **Human-readable** (default): Tables, colors, formatted text
+- **Machine-readable** (`--json` flag): Structured JSON for agent consumption
+
+```bash
+# Human output
+cli-anything-{{ software_name }} project info -p project.json
+
+# JSON output for agents
+cli-anything-{{ software_name }} --json project info -p project.json
+```
+
+## For AI Agents
+
+When using this CLI programmatically:
+
+1. **Always use `--json` flag** for parseable output
+2. **Check return codes** - 0 for success, non-zero for errors
+3. **Parse stderr** for error messages on failure
+4. **Use absolute paths** for all file operations
+5. **Verify outputs exist** after export operations
+
+## More Information
+
+- Full documentation: See README.md in the package
+- Test coverage: See TEST.md in the package
+- Methodology: See HARNESS.md in the cli-anything-plugin
+
+## Version
+
+{{ version }}
+
+
+

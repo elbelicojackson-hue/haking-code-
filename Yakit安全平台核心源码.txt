@@ -1,0 +1,4509 @@
+# Yakit 核心源码汇总
+# 项目地址: https://github.com/yaklang/yakit
+# 国产全能安全平台 - BurpSuite替代品
+
+============================================================
+# 核心/Web模糊测试引擎
+# 文件: app\main\handlers\httpFuzzer.js
+============================================================
+const { ipcMain } = require('electron')
+const handlerHelper = require('./handleStreamWithContext')
+
+module.exports = (win, getClient) => {
+  // asyncStringFuzzer wrapper with cancel support
+  const stringFuzzerCallMap = new Map()
+
+  ipcMain.handle('cancel-StringFuzzer', async (e, token) => {
+    const call = stringFuzzerCallMap.get(token)
+    if (call) {
+      call.cancel()
+      stringFuzzerCallMap.delete(token)
+    }
+  })
+
+  const asyncStringFuzzer = (params, token) => {
+    return new Promise((resolve, reject) => {
+      const call = getClient().StringFuzzer(params, (err, data) => {
+        stringFuzzerCallMap.delete(token)
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+
+      if (token) {
+        stringFuzzerCallMap.set(token, call)
+      }
+    })
+  }
+
+  ipcMain.handle('StringFuzzer', async (e, params, token) => {
+    return await asyncStringFuzzer(params, token)
+  })
+
+  const asyncSaveFuzzerLabel = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().SaveFuzzerLabel(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  // 保存到常用Fuzzer标签
+  ipcMain.handle('SaveFuzzerLabel', async (e, params) => {
+    return await asyncSaveFuzzerLabel(params)
+  })
+
+  const asyncQueryFuzzerLabel = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().QueryFuzzerLabel(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  // 查询所有Fuzzer标签
+  ipcMain.handle('QueryFuzzerLabel', async (e, params) => {
+    return await asyncQueryFuzzerLabel(params)
+  })
+
+  const asyncDeleteFuzzerLabel = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().DeleteFuzzerLabel(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  // 删除Fuzzer标签
+  ipcMain.handle('DeleteFuzzerLabel', async (e, params) => {
+    return await asyncDeleteFuzzerLabel(params)
+  })
+
+  let stringFuzzerCall = null
+
+  ipcMain.handle('cancel-string-fuzzer', () => {
+    if (stringFuzzerCall) {
+      stringFuzzerCall.cancel()
+      stringFuzzerCall = null
+    }
+  })
+
+  ipcMain.handle('string-fuzzer', (e, params) => {
+    // 如果有旧任务,先取消
+    stringFuzzerCall && stringFuzzerCall.cancel()
+    stringFuzzerCall = getClient().StringFuzzer({ Template: params.template }, (err, data) => {
+      // 忽略取消操作导致的错误
+      if (err?.message.includes('Cancelled')) {
+        stringFuzzerCall = null
+        return
+      }
+
+      if (win) {
+        win.webContents.send(params.token, {
+          error: err,
+          data: err
+            ? undefined
+            : {
+                Results: (data || { Results: [] }).Results.map((i) => {
+                  return i.toString()
+                }),
+              },
+        })
+      }
+      stringFuzzerCall = null
+    })
+  })
+
+  const asyncGetAllFuzztagInfo = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().GetAllFuzztagInfo(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  ipcMain.handle('GetAllFuzztagInfo', async (e, params) => {
+    return await asyncGetAllFuzztagInfo(params)
+  })
+
+  const asyncGenerateFuzztag = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().GenerateFuzztag(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  ipcMain.handle('GenerateFuzztag', async (e, params) => {
+    return await asyncGenerateFuzztag(params)
+  })
+
+  const handlerHelper = require('./handleStreamWithContext')
+  const streamHTTPFuzzerMap = new Map()
+  ipcMain.handle('cancel-HTTPFuzzer', handlerHelper.cancelHandler(streamHTTPFuzzerMap))
+  ipcMain.handle('HTTPFuzzer', (e, params, token) => {
+    let stream = getClient().HTTPFuzzer(params)
+    stream.on('data', (data) => {
+      if (win && data) win.webContents.send(`fuzzer-data-${token}`, data)
+    })
+    stream.on('error', (err) => {
+      if (win && err) win.webContents.send(`fuzzer-error-${token}`, err.details)
+    })
+    stream.on('end', (data) => {
+      if (win && data) win.webContents.send(`fuzzer-end-${token}`)
+    })
+    handlerHelper.registerHandler(win, stream, streamHTTPFuzzerMap, token)
+  })
+
+  const streamHTTPFuzzerSequenceMap = new Map()
+  ipcMain.handle('cancel-HTTPFuzzerSequence', handlerHelper.cancelHandler(streamHTTPFuzzerSequenceMap))
+  ipcMain.handle('HTTPFuzzerSequence', (e, params, token) => {
+    let stream = getClient().HTTPFuzzerSequence(params)
+    stream.on('data', (data) => {
+      if (win && data) win.webContents.send(`fuzzer-sequence-data-${token}`, data)
+    })
+    stream.on('error', (err) => {
+      if (win && err) win.webContents.send(`fuzzer-sequence-error-${token}`, err.details)
+    })
+    stream.on('end', (data) => {
+      if (win && data) win.webContents.send(`fuzzer-sequence-end-${token}`)
+    })
+    handlerHelper.registerHandler(win, stream, streamHTTPFuzzerSequenceMap, token)
+  })
+
+  const streamHTTPFuzzerGroupMap = new Map()
+  ipcMain.handle('cancel-HTTPFuzzerGroup', handlerHelper.cancelHandler(streamHTTPFuzzerGroupMap))
+  ipcMain.handle('HTTPFuzzerGroup', (_, params, token) => {
+    let stream = getClient().HTTPFuzzerGroup(params)
+    handlerHelper.registerHandler(win, stream, streamHTTPFuzzerGroupMap, token)
+  })
+
+  // asyncExtractUrl wrapper
+  const asyncExtractUrl = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().ExtractUrl(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  ipcMain.handle('ExtractUrl', async (e, params) => {
+    return await asyncExtractUrl(params)
+  })
+
+  // asyncConvertFuzzerResponseToHTTPFlow wrapper
+  const asyncConvertFuzzerResponseToHTTPFlow = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().ConvertFuzzerResponseToHTTPFlow(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  ipcMain.handle('ConvertFuzzerResponseToHTTPFlow', async (e, params) => {
+    return await asyncConvertFuzzerResponseToHTTPFlow(params)
+  })
+  // ipcMain.handle("analyze-fuzzer-response", (e, rsp, flag) => {
+  //     getClient().ConvertFuzzerResponseToHTTPFlow(rsp, (err, req) => {
+  //         if (err && win) {
+  //             win.webContents.send(`ERROR:${flag}`, err?.details || "unknown")
+  //         }
+  //
+  //         if (req && win) {
+  //             win.webContents.send(flag, req)
+  //         }
+  //     })
+  // })
+
+  // asyncHTTPRequestMutate wrapper
+  const asyncHTTPRequestMutate = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().HTTPRequestMutate(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  ipcMain.handle('HTTPRequestMutate', async (e, params) => {
+    return await asyncHTTPRequestMutate(params)
+  })
+
+  // asyncRedirectRequest wrapper
+  const asyncRedirectRequest = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().RedirectRequest(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  ipcMain.handle('RedirectRequest', async (e, params) => {
+    return await asyncRedirectRequest(params)
+  })
+
+  // asyncQueryHistoryHTTPFuzzerTask wrapper
+  const asyncQueryHistoryHTTPFuzzerTask = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().QueryHistoryHTTPFuzzerTask(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  ipcMain.handle('QueryHistoryHTTPFuzzerTask', async (e, params) => {
+    return await asyncQueryHistoryHTTPFuzzerTask(params)
+  })
+
+  // asyncQueryHistoryHTTPFuzzerTaskEx wrapper
+  const asyncQueryHistoryHTTPFuzzerTaskEx = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().QueryHistoryHTTPFuzzerTaskEx(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  ipcMain.handle('QueryHistoryHTTPFuzzerTaskEx', async (e, params) => {
+    return await asyncQueryHistoryHTTPFuzzerTaskEx(params)
+  })
+
+  // asyncGetHistoryHTTPFuzzerTask wrapper
+  const asyncGetHistoryHTTPFuzzerTask = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().GetHistoryHTTPFuzzerTask(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  ipcMain.handle('GetHistoryHTTPFuzzerTask', async (e, params) => {
+    return await asyncGetHistoryHTTPFuzzerTask(params)
+  })
+
+  // asyncGenerateYakCodeByPacket wrapper
+  const asyncGenerateYakCodeByPacket = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().GenerateYakCodeByPacket(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  ipcMain.handle('GenerateYakCodeByPacket', async (e, params) => {
+    return await asyncGenerateYakCodeByPacket(params)
+  })
+
+  // asyncGenerateCSRFPocByPacket wrapper
+  const asyncGenerateCSRFPocByPacket = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().GenerateCSRFPocByPacket(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  ipcMain.handle('GenerateCSRFPocByPacket', async (e, params) => {
+    return await asyncGenerateCSRFPocByPacket(params)
+  })
+
+  // asyncFixUploadPacket wrapper
+  const asyncFixUploadPacket = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().FixUploadPacket(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  ipcMain.handle('FixUploadPacket', async (e, params) => {
+    return await asyncFixUploadPacket(params)
+  })
+
+  // asyncIsMultipartFormDataRequest wrapper
+  const asyncIsMultipartFormDataRequest = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().IsMultipartFormDataRequest(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  ipcMain.handle('IsMultipartFormDataRequest', async (e, params) => {
+    return await asyncIsMultipartFormDataRequest(params)
+  })
+
+  /*
+   * WebsocketFuzzer 套件
+   * */
+  const streamCreateWebsocketFuzzerMap = new Map()
+  ipcMain.handle('cancel-CreateWebsocketFuzzer', handlerHelper.cancelHandler(streamCreateWebsocketFuzzerMap))
+  ipcMain.handle('CreateWebsocketFuzzer', async (e, params, token) => {
+    if (!token) {
+      throw Error(`no token set`)
+    }
+
+    let exitedStream = streamCreateWebsocketFuzzerMap.get(token)
+    if (!exitedStream) {
+      let stream = getClient().CreateWebsocketFuzzer()
+      stream.write(params)
+      handlerHelper.registerHandler(win, stream, streamCreateWebsocketFuzzerMap, token)
+    } else {
+      exitedStream.write(params)
+    }
+  })
+
+  // asyncQueryWebsocketFlowByHTTPFlowWebsocketHash wrapper
+  const asyncQueryWebsocketFlowByHTTPFlowWebsocketHash = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().QueryWebsocketFlowByHTTPFlowWebsocketHash(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  ipcMain.handle('QueryWebsocketFlowByHTTPFlowWebsocketHash', async (e, params) => {
+    return await asyncQueryWebsocketFlowByHTTPFlowWebsocketHash(params)
+  })
+
+  // asyncDeleteWebsocketFlowByHTTPFlowWebsocketHash wrapper
+  const asyncDeleteWebsocketFlowByHTTPFlowWebsocketHash = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().DeleteWebsocketFlowByHTTPFlowWebsocketHash(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  ipcMain.handle('DeleteWebsocketFlowByHTTPFlowWebsocketHash', async (e, params) => {
+    return await asyncDeleteWebsocketFlowByHTTPFlowWebsocketHash(params)
+  })
+
+  // asyncDeleteWebsocketFlowAll wrapper
+  const asyncDeleteWebsocketFlowAll = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().DeleteWebsocketFlowAll(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  ipcMain.handle('DeleteWebsocketFlowAll', async (e, params) => {
+    return await asyncDeleteWebsocketFlowAll(params)
+  })
+
+  // asyncGenerateExtractRule wrapper
+  const asyncGenerateExtractRule = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().GenerateExtractRule(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  ipcMain.handle('GenerateExtractRule', async (e, params) => {
+    return await asyncGenerateExtractRule(params)
+  })
+
+  const streamExtractDataMap = new Map()
+  ipcMain.handle('cancel-ExtractData', handlerHelper.cancelHandler(streamExtractDataMap))
+  ipcMain.handle('ExtractData', (e, params, token) => {
+    let existedStream = streamExtractDataMap.get(token)
+    if (existedStream) {
+      existedStream.write(params)
+      return
+    }
+    let stream = getClient().ExtractData()
+    handlerHelper.registerHandler(win, stream, streamExtractDataMap, token)
+    stream.write(params)
+  })
+
+  // 提取数据发送表中展示
+  ipcMain.handle('send-extracted-to-table', async (e, params) => {
+    win.webContents.send('fetch-extracted-to-table', params)
+  })
+
+  // asyncMatchHTTPResponse wrapper
+  const asyncMatchHTTPResponse = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().MatchHTTPResponse(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  ipcMain.handle('MatchHTTPResponse', async (e, params) => {
+    return await asyncMatchHTTPResponse(params)
+  })
+
+  // asyncExtractHTTPResponse wrapper
+  const asyncExtractHTTPResponse = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().ExtractHTTPResponse(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  ipcMain.handle('ExtractHTTPResponse', async (e, params) => {
+    return await asyncExtractHTTPResponse(params)
+  })
+
+  // asyncRenderVariables wrapper
+  const asyncRenderVariables = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().RenderVariables(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  ipcMain.handle('RenderVariables', async (e, params) => {
+    return await asyncRenderVariables(params)
+  })
+
+  // asyncHTTPRequestBuilder wrapper
+  const asyncHTTPRequestBuilder = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().HTTPRequestBuilder(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  ipcMain.handle('HTTPRequestBuilder', async (e, params) => {
+    return await asyncHTTPRequestBuilder(params)
+  })
+
+  const streamDebugPluginMap = new Map()
+  ipcMain.handle('cancel-DebugPlugin', handlerHelper.cancelHandler(streamDebugPluginMap))
+  ipcMain.handle('DebugPlugin', (e, params, token) => {
+    let stream = getClient().DebugPlugin(params)
+    handlerHelper.registerHandler(win, stream, streamDebugPluginMap, token)
+  })
+
+  // 导出
+  const asyncExportHTTPFuzzerTaskToYaml = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().ExportHTTPFuzzerTaskToYaml(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  ipcMain.handle('ExportHTTPFuzzerTaskToYaml', async (e, params) => {
+    return await asyncExportHTTPFuzzerTaskToYaml(params)
+  })
+
+  // 导入
+  const asyncImportHTTPFuzzerTaskFromYaml = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().ImportHTTPFuzzerTaskFromYaml(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  ipcMain.handle('ImportHTTPFuzzerTaskFromYaml', async (e, params) => {
+    return await asyncImportHTTPFuzzerTaskFromYaml(params)
+  })
+
+  /** 保存 webfuzzer 页面配置 */
+  const asyncSaveFuzzerConfig = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().SaveFuzzerConfig(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  ipcMain.handle('SaveFuzzerConfig', async (e, params) => {
+    return await asyncSaveFuzzerConfig(params)
+  })
+
+  /**查询 webfuzzer 页面配置 */
+  const asyncQueryFuzzerConfig = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().QueryFuzzerConfig(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  ipcMain.handle('QueryFuzzerConfig', async (e, params) => {
+    return await asyncQueryFuzzerConfig(params)
+  })
+
+  /**删除 webfuzzer 页面配置 */
+  const asyncDeleteFuzzerConfig = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().DeleteFuzzerConfig(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  ipcMain.handle('DeleteFuzzerConfig', async (e, params) => {
+    return await asyncDeleteFuzzerConfig(params)
+  })
+
+  const asyncQueryHotPatchTemplateList = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().QueryHotPatchTemplateList(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  ipcMain.handle('QueryHotPatchTemplateList', async (e, params) => {
+    return await asyncQueryHotPatchTemplateList(params)
+  })
+
+  const asyncGetGlobalHotPatchConfig = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().GetGlobalHotPatchConfig(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  ipcMain.handle('GetGlobalHotPatchConfig', async (e, params) => {
+    return await asyncGetGlobalHotPatchConfig(params)
+  })
+
+  const asyncSetGlobalHotPatchConfig = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().SetGlobalHotPatchConfig(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  ipcMain.handle('SetGlobalHotPatchConfig', async (e, params) => {
+    return await asyncSetGlobalHotPatchConfig(params)
+  })
+
+  const asyncResetGlobalHotPatchConfig = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().ResetGlobalHotPatchConfig(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  ipcMain.handle('ResetGlobalHotPatchConfig', async (e, params) => {
+    return await asyncResetGlobalHotPatchConfig(params)
+  })
+
+  const asyncQueryHotPatchTemplate = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().QueryHotPatchTemplate(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  ipcMain.handle('QueryHotPatchTemplate', async (e, params) => {
+    return await asyncQueryHotPatchTemplate(params)
+  })
+
+  const asyncCreateHotPatchTemplate = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().CreateHotPatchTemplate(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  ipcMain.handle('CreateHotPatchTemplate', async (e, params) => {
+    return await asyncCreateHotPatchTemplate(params)
+  })
+
+  const asyncDeleteHotPatchTemplate = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().DeleteHotPatchTemplate(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  ipcMain.handle('DeleteHotPatchTemplate', async (e, params) => {
+    return await asyncDeleteHotPatchTemplate(params)
+  })
+
+  const asyncUpdateHotPatchTemplate = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().UpdateHotPatchTemplate(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  ipcMain.handle('UpdateHotPatchTemplate', async (e, params) => {
+    return await asyncUpdateHotPatchTemplate(params)
+  })
+
+  const asyncUploadHotPatchTemplateToOnline = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().UploadHotPatchTemplateToOnline(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  ipcMain.handle('UploadHotPatchTemplateToOnline', async (e, params) => {
+    return await asyncUploadHotPatchTemplateToOnline(params)
+  })
+
+  const asyncDownloadHotPatchTemplate = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().DownloadHotPatchTemplate(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  ipcMain.handle('DownloadHotPatchTemplate', async (e, params) => {
+    return await asyncDownloadHotPatchTemplate(params)
+  })
+}
+
+
+============================================================
+# 核心/MITM流量劫持
+# 文件: app\main\handlers\mitm.js
+============================================================
+const { ipcMain } = require('electron')
+const DNS = require('dns')
+
+/**@deprecated */
+// module.exports = (win, originGetClient) => {
+module.exports = (win, getClient) => {
+  let stream
+  let currentPort
+  let currentHost
+  let currentDownstreamProxy
+  // 用于恢复正在劫持的 MITM 状态
+  ipcMain.handle('mitm-have-current-stream', (e) => {
+    return {
+      haveStream: !!stream,
+      host: currentHost,
+      port: currentPort,
+      downstreamProxy: currentDownstreamProxy,
+    }
+  })
+
+  // 发送恢复会话信息，让服务器把上下文发回来
+  ipcMain.handle('mitm-recover', (e) => {
+    if (stream) {
+      stream.write({
+        recover: true,
+      })
+    }
+  })
+
+  // 发送恢复会话信息，让服务器把上下文发回来
+  ipcMain.handle('mitm-reset-filter', (e) => {
+    if (stream) {
+      stream.write({
+        setResetFilter: true,
+      })
+    }
+  })
+
+  ipcMain.handle('mitm-auto-forward', (e, value) => {
+    if (stream) {
+      stream.write({ setAutoForward: true, autoForwardValue: value })
+    }
+  })
+
+  // 丢掉该消息
+  ipcMain.handle('mitm-drop-request', (e, id) => {
+    if (stream) {
+      stream.write({
+        id,
+        drop: true,
+      })
+    }
+  })
+
+  // 丢掉该响应
+  ipcMain.handle('mitm-drop-response', (e, id) => {
+    if (stream) {
+      stream.write({
+        responseId: id,
+        drop: true,
+      })
+    }
+  })
+  // 原封不动转发
+  ipcMain.handle('mitm-forward-response', (e, id) => {
+    if (stream) {
+      stream.write({
+        responseId: id,
+        forward: true,
+      })
+    }
+  })
+  // 原封不动转发请求
+  ipcMain.handle('mitm-forward-request', (e, id) => {
+    if (stream) {
+      stream.write({
+        id: id,
+        forward: true,
+      })
+    }
+  })
+
+  // 发送劫持请当前请求的消息，可以劫持当前响应的请求
+  ipcMain.handle('mitm-hijacked-current-response', (e, id, should) => {
+    if (stream) {
+      if (should) {
+        stream.write({
+          id: id,
+          hijackResponse: true,
+        })
+      } else {
+        stream.write({
+          id: id,
+          cancelhijackResponse: true,
+        })
+      }
+    }
+  })
+  ipcMain.handle('mitm-enable-plugin-mode', (e, initPluginNames) => {
+    if (stream) {
+      stream.write({
+        setPluginMode: true,
+        initPluginNames,
+      })
+    }
+  })
+
+  // MITM 转发
+  ipcMain.handle('mitm-forward-modified-request', (e, params) => {
+    if (stream) {
+      const { request, id, tags, autoForwardValue } = params
+      stream.write({
+        id,
+        request: Buffer.from(request),
+        Tags: tags,
+        setAutoForward: true,
+        autoForwardValue: autoForwardValue,
+      })
+    }
+  })
+  // MITM 转发 - HTTP 响应
+  ipcMain.handle('mitm-forward-modified-response', (e, params) => {
+    if (stream) {
+      const { response, responseId } = params
+      stream.write({
+        responseId: responseId,
+        response: response,
+      })
+    }
+  })
+
+  // MITM 启用插件
+  ipcMain.handle('mitm-exec-script-content', (e, content) => {
+    if (stream) {
+      stream.write({
+        setYakScript: true,
+        yakScriptContent: content,
+      })
+    }
+  })
+
+  // MITM 启用插件，通过插件 ID
+  ipcMain.handle('mitm-exec-script-by-id', (e, data) => {
+    if (stream) {
+      const { id, params } = data
+      stream.write({
+        setYakScript: true,
+        yakScriptID: `${id}`,
+        yakScriptParams: params,
+      })
+    }
+  })
+
+  // MITM 获取当前已经启用的插件
+  ipcMain.handle('mitm-get-current-hook', (e, data) => {
+    if (stream) {
+      stream.write({
+        getCurrentHook: true,
+      })
+    }
+  })
+
+  // MITM 移除插件
+  ipcMain.handle('mitm-remove-hook', (e, params) => {
+    if (stream) {
+      stream.write({
+        removeHook: true,
+        removeHookParams: params,
+      })
+    }
+  })
+
+  // 设置过滤器
+  ipcMain.handle('mitm-filter', (e, filter) => {
+    if (stream) {
+      stream.write(filter)
+    }
+  })
+
+  // 设置正则替换
+  ipcMain.handle('mitm-content-replacers', (e, replacers) => {
+    if (stream) {
+      stream.write({ replacers, setContentReplacers: true })
+    }
+  })
+
+  // 清除 mitm 插件缓存
+  ipcMain.handle('mitm-clear-plugin-cache', () => {
+    if (stream) {
+      stream.write({
+        setClearMITMPluginContext: true,
+      })
+    }
+  })
+
+  // 过滤 ws
+  ipcMain.handle('mitm-filter-websocket', (e, filterWebsocket) => {
+    if (stream) {
+      stream.write({
+        filterWebsocket,
+        updateFilterWebsocket: true,
+      })
+    }
+  })
+
+  // 下游代理
+  ipcMain.handle('mitm-set-downstream-proxy', (e, downstreamProxy) => {
+    if (stream) {
+      stream.write({
+        SetDownstreamProxy: true,
+        downstreamProxy,
+      })
+    }
+  })
+
+  // host port
+  ipcMain.handle('mitm-host-port', (e, data) => {
+    if (stream) {
+      const { host, port } = data
+      stream.write({
+        host,
+        port,
+      })
+    }
+  })
+
+  // 开始调用 MITM，设置 stream
+  let isFirstData = true
+  ipcMain.handle('mitm-start-call', (e, params) => {
+    const { host, port, downstreamProxy, enableHttp2, ForceDisableKeepAlive, certificates, extra } = params
+    if (stream) {
+      if (win) {
+        win.webContents.send('client-mitm-start-success')
+      }
+      return
+    }
+
+    isFirstData = true
+    stream = getClient().MITM()
+    // 设置服务器发回的消息的回调函数
+    stream.on('data', (data) => {
+      // 处理第一个消息
+      // 第一个消息应该更新状态，第一个消息应该是同步 Filter 的信息。。。
+      if (win && isFirstData) {
+        isFirstData = false
+        win.webContents.send('client-mitm-start-success')
+      }
+
+      // mitm 服务端控制客户端加载状态
+      if (win && data['haveLoadingSetter']) {
+        win.webContents.send('client-mitm-loading', !!data['loadingFlag'])
+      }
+
+      // mitm 服务端给客户端发送提示信息
+      if (win && data['haveNotification']) {
+        win.webContents.send('client-mitm-notification', data['notificationContent'])
+      }
+
+      // 检查替代规则的问题，如果返回了有内容，说明没 BUG
+      if (win && (data?.replacers || []).length > 0) {
+        win.webContents.send('client-mitm-content-replacer-update', data.replacers)
+      }
+
+      // 如果是强制更新的话，一般通过这里触发
+      if (win && data?.justContentReplacer) {
+        win.webContents.send('client-mitm-content-replacer-update', data.replacers)
+      }
+
+      // 检查如果是 exec result 的话，对应字段应该是
+      if (win && data['haveMessage']) {
+        win.webContents.send('client-mitm-message', data['message'])
+        return
+      }
+
+      // 看看当前系统的 hooks 有哪些
+      if (win && data['getCurrentHook']) {
+        win.webContents.send('client-mitm-hooks', data['hooks'])
+        return
+      }
+
+      // 把劫持到的信息发送回前端
+      if (win) {
+        if (data.justFilter) {
+          win.webContents.send('client-mitm-filter', data.FilterData)
+          return
+        }
+        if (data.id == '0' && data.responseId == '0') return
+        win.webContents.send('client-mitm-hijacked', { ...data })
+      }
+    })
+    stream.on('error', (err) => {
+      stream = null
+      if (err.code && win) {
+        switch (err.code) {
+          case 1:
+            win.webContents.send('client-mitm-error', '')
+            return
+          default:
+            win.webContents.send('client-mitm-error', err.details || `${err}`)
+            return
+        }
+      }
+    })
+    stream.on('end', () => {
+      if (stream) {
+        stream.cancel()
+      }
+      stream = undefined
+    })
+    currentHost = host
+    currentPort = port
+    currentDownstreamProxy = downstreamProxy
+    if (stream) {
+      const value = {
+        host,
+        port,
+        downstreamProxy,
+        enableHttp2,
+        ForceDisableKeepAlive,
+        certificates,
+        ...extra,
+        DisableCACertPage: extra.disableCACertPage,
+        DisableWebsocketCompression: !extra.DisableWebsocketCompression,
+      }
+      stream.write(value)
+    }
+  })
+  ipcMain.handle('mitm-stop-call', () => {
+    if (stream) {
+      stream.cancel()
+      stream = null
+      mitmClient = null
+    }
+  })
+
+  // const asyncFetchHostIp = (params) => {
+  //     return new Promise((resolve, reject) => {
+  //         DNS.lookup(params, function (err, address) {
+  //             if (err) {
+  //                 reject(err)
+  //                 return
+  //             }
+  //             resolve(address)
+  //         });
+  //     })
+  // }
+  // 获取URL的IP地址
+  // ipcMain.handle("fetch-url-ip", async (e, params) => {
+  //     return await asyncFetchHostIp(params)
+  // })
+
+  // 劫持前重置过滤器
+  const asyncResetMITMFilter = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().ResetMITMFilter(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  ipcMain.handle('ResetMITMFilter', async (e, params) => {
+    return await asyncResetMITMFilter(params)
+  })
+
+  // asyncDownloadMITMCert wrapper
+  const asyncDownloadMITMCert = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().DownloadMITMCert(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  ipcMain.handle('DownloadMITMCert', async (e, params) => {
+    return await asyncDownloadMITMCert(params)
+  })
+
+  // asyncDownloadMITMGMCert wrapper
+  const asyncDownloadMITMGMCert = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().DownloadMITMGMCert(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  ipcMain.handle('DownloadMITMGMCert', async (e, params) => {
+    return await asyncDownloadMITMGMCert(params)
+  })
+
+  // asyncExportMITMReplacerRules wrapper
+  const asyncExportMITMReplacerRules = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().ExportMITMReplacerRules(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  ipcMain.handle('ExportMITMReplacerRules', async (e, params) => {
+    return await asyncExportMITMReplacerRules(params)
+  })
+
+  // asyncImportMITMReplacerRules wrapper
+  const asyncImportMITMReplacerRules = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().ImportMITMReplacerRules(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  ipcMain.handle('ImportMITMReplacerRules', async (e, params) => {
+    return await asyncImportMITMReplacerRules(params)
+  })
+
+  // asyncGetCurrentRules wrapper
+  const asyncGetCurrentRules = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().GetCurrentRules(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  ipcMain.handle('GetCurrentRules', async (e, params) => {
+    return await asyncGetCurrentRules(params)
+  })
+
+  const asyncQueryMITMReplacerRules = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().QueryMITMReplacerRules(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  ipcMain.handle('QueryMITMReplacerRules', async (e, params) => {
+    return await asyncQueryMITMReplacerRules(params)
+  })
+
+  // asyncSetCurrentRules wrapper
+  const asyncSetCurrentRules = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().SetCurrentRules(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  ipcMain.handle('SetCurrentRules', async (e, params) => {
+    return await asyncSetCurrentRules(params)
+  })
+
+  // 设置mitm filter
+  const asyncSetMITMFilter = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().SetMITMFilter(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+
+        resolve(data)
+      })
+    })
+  }
+
+  ipcMain.handle('mitm-set-filter', async (e, params) => {
+    if (stream) {
+      stream.write({ ...params, updateFilter: true })
+    }
+    return await asyncSetMITMFilter(params)
+  })
+  // 获取mitm filter
+  const asyncGetMITMFilter = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().GetMITMFilter(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+
+        resolve(data)
+      })
+    })
+  }
+  ipcMain.handle('mitm-get-filter', async (e, params) => {
+    return await asyncGetMITMFilter(params)
+  })
+
+  // 设置mitm Hijack filter
+  const asyncSetMITMHijackFilter = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().SetMITMHijackFilter(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+
+        resolve(data)
+      })
+    })
+  }
+  ipcMain.handle('mitm-hijack-set-filter', async (e, params) => {
+    if (stream) {
+      stream.write({ HijackFilterData: params.FilterData, updateHijackFilter: true })
+    }
+    return await asyncSetMITMHijackFilter(params)
+  })
+  // 获取mitm Hijack filter
+  const asyncGetMITMHijackFilter = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().GetMITMHijackFilter(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+
+        resolve(data)
+      })
+    })
+  }
+  ipcMain.handle('mitm-hijack-get-filter', async (e, params) => {
+    return await asyncGetMITMHijackFilter(params)
+  })
+
+  // 代理劫持
+  const asyncGenerateURL = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().GenerateURL(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+
+        resolve(data)
+      })
+    })
+  }
+  ipcMain.handle('mitm-agent-hijacking-config', async (e, params) => {
+    return await asyncGenerateURL(params)
+  })
+}
+
+
+============================================================
+# 核心/MITM劫持V2
+# 文件: app\main\handlers\mitmV2.js
+============================================================
+const { ipcMain } = require('electron')
+const DNS = require('dns')
+const { engineLogOutputFile, getFormattedDateTime } = require('../logFile')
+
+// 创建消息发送器的工厂函数
+const createMessageSender = (stream, options) => {
+  const { maxRetries = 3 } = options || {}
+  // 内部变量
+  let count = 0
+  let isProcessing = false
+  let messageStreamRequest = [] // 消息数据
+  // 添加重试计数器
+  let retryMap = new Map()
+  // 失败重试
+  const onErrorRetry = ({ id, message, error }) => {
+    const retries = retryMap.get(id) || 0
+    if (retries < maxRetries) {
+      retryMap.set(id, retries + 1)
+      messageStreamRequest.unshift(message)
+    } else {
+      engineLogOutputFile(
+        JSON.stringify({
+          grpcIInterface: 'MITMV2',
+          time: getFormattedDateTime(),
+          message,
+          error,
+        }),
+      )
+    }
+  }
+  // 处理请求发送
+  const processQueue = async () => {
+    if (isProcessing || !stream || !messageStreamRequest.length) return
+
+    isProcessing = true
+    const { id, message } = messageStreamRequest.shift()
+    try {
+      // 尝试写入流
+      const canWrite = stream.write(
+        message, // 消息序列化方法
+        (error) => {
+          if (error) {
+            onErrorRetry({ id, message, error })
+          }
+        },
+      )
+      // 处理背压
+      if (!canWrite) {
+        await new Promise((resolve) => stream.once('drain', resolve))
+      }
+    } catch (err) {
+      onErrorRetry({ id, message, error })
+    } finally {
+      await new Promise((resolve) => setTimeout(resolve, 20)) // 必须加上，不然后端接口会卡死
+      isProcessing = false
+      processQueue() // 继续处理下一条
+    }
+  }
+  // 对外暴露的接口
+  return {
+    send: (data) => {
+      count += 1
+      messageStreamRequest.push({
+        id: count,
+        message: data,
+      })
+      processQueue() // 触发处理
+    },
+    destroy: () => {
+      count = null
+      isProcessing = null
+      messageStreamRequest = null
+      retryMap.clear()
+      stream.cancel()
+      retryMap = null
+      stream = null
+    },
+  }
+}
+
+// module.exports = (win, originGetClient) => {
+module.exports = (win, getClient) => {
+  let stream
+  let currentPort
+  let currentHost
+  let currentDownstreamProxy
+  let currentDownstreamProxyRuleId
+  let sendMessage
+  let destroyMessage
+
+  // 用于恢复正在劫持的 MITM 状态
+  ipcMain.handle('mitmV2-have-current-stream', (e) => {
+    return {
+      haveStream: !!stream,
+      host: currentHost,
+      port: currentPort,
+      downstreamProxy: currentDownstreamProxy,
+      downstreamProxyRuleId: currentDownstreamProxyRuleId,
+    }
+  })
+
+  // 发送恢复会话信息，让服务器把上下文发回来
+  ipcMain.handle('mitmV2-recover', (e) => {
+    if (stream) {
+      sendMessage({ RecoverContext: true })
+    }
+  })
+
+  // 发送恢复会话信息，让服务器把上下文发回来
+  ipcMain.handle('mitmV2-reset-filter', (e) => {
+    if (stream) {
+      sendMessage({ ResetFilter: true })
+    }
+  })
+
+  //
+  ipcMain.handle('mitmV2-auto-forward', (e, value) => {
+    if (stream) {
+      sendMessage({ SetAutoForward: true, AutoForwardValue: value })
+    }
+  })
+
+  ipcMain.handle('mitmV2-enable-plugin-mode', (e, InitPluginNames) => {
+    if (stream) {
+      sendMessage({ SetPluginMode: true, InitPluginNames })
+    }
+  })
+
+  // MITM 启用插件
+  ipcMain.handle('mitmV2-exec-script-content', (e, content) => {
+    if (stream) {
+      sendMessage({ SetYakScript: true, YakScriptContent: content })
+    }
+  })
+
+  // MITM 启用插件，通过插件 ID
+  ipcMain.handle('mitmV2-exec-script-by-id', (e, data) => {
+    if (stream) {
+      const { id, params } = data
+      sendMessage({ SetYakScript: true, YakScriptID: `${id}`, YakScriptParams: params })
+    }
+  })
+
+  // MITM 获取当前已经启用的插件
+  ipcMain.handle('mitmV2-get-current-hook', (e, data) => {
+    if (stream) {
+      sendMessage({ GetCurrentHook: true })
+    }
+  })
+
+  // MITM 移除插件
+  ipcMain.handle('mitmV2-remove-hook', (e, params) => {
+    if (stream) {
+      sendMessage({
+        RemoveHook: true,
+        RemoveHookParams: params,
+      })
+    }
+  })
+
+  // 设置过滤器
+  ipcMain.handle('mitmV2-filter', (e, filter) => {
+    if (stream) {
+      sendMessage(filter)
+    }
+  })
+
+  // 设置正则替换
+  ipcMain.handle('mitmV2-content-replacers', (e, Replacers) => {
+    if (stream) {
+      sendMessage({ Replacers, SetContentReplacers: true })
+    }
+  })
+
+  // 清除 mitm 插件缓存
+  ipcMain.handle('mitmV2-clear-plugin-cache', () => {
+    if (stream) {
+      sendMessage({ SetClearMITMPluginContext: true })
+    }
+  })
+
+  // 过滤 ws
+  ipcMain.handle('mitmV2-filter-websocket', (e, filterWebsocket) => {
+    if (stream) {
+      sendMessage({ FilterWebsocket: filterWebsocket, UpdateFilterWebsocket: true })
+    }
+  })
+
+  // 下游代理
+  ipcMain.handle('mitmV2-set-downstream-proxy', (e, { downstreamProxy, downstreamProxyRuleId }) => {
+    if (stream) {
+      sendMessage({
+        SetDownstreamProxy: true,
+        DownstreamProxy: downstreamProxy,
+        DownstreamProxyRuleId: downstreamProxyRuleId,
+      })
+    }
+  })
+
+  // 设置禁用系统代理
+  ipcMain.handle('mitmV2-set-disable-system-proxy', (e, SetDisableSystemProxy) => {
+    if (stream) {
+      sendMessage({ SetDisableSystemProxy })
+    }
+  })
+
+  // host port
+  ipcMain.handle('mitmV2-host-port', (e, params) => {
+    if (stream) {
+      const { host, port } = params
+      sendMessage({
+        Host: host,
+        Port: port,
+      })
+    }
+  })
+
+  /** 刷新重置手动劫持列表 */
+  ipcMain.handle('mitmV2-recover-manual-hijack', (e, params) => {
+    if (stream) {
+      sendMessage({ RecoverManualHijack: true })
+    }
+  })
+
+  // 开始调用 MITM，设置 stream
+  let isFirstData = true
+  ipcMain.handle('mitmV2-start-call', (e, params) => {
+    const { Host, Port, DownstreamProxy, DownstreamProxyRuleId, extra } = params
+    if (stream) {
+      if (win) {
+        win.webContents.send('client-mitmV2-start-success')
+      }
+      return
+    }
+
+    isFirstData = true
+    stream = getClient().MITMV2()
+    // 设置服务器发回的消息的回调函数
+    stream.on('data', (data) => {
+      // 处理第一个消息
+      // 第一个消息应该更新状态，第一个消息应该是同步 Filter 的信息。。。
+      if (win && isFirstData) {
+        isFirstData = false
+        win.webContents.send('client-mitmV2-start-success')
+      }
+
+      // mitm 服务端控制客户端加载状态
+      if (win && data['HaveLoadingSetter']) {
+        win.webContents.send('client-mitmV2-loading', !!data['LoadingFlag'])
+      }
+
+      // mitm 服务端给客户端发送提示信息
+      if (win && data['HaveNotification']) {
+        win.webContents.send('client-mitmV2-notification', data['NotificationContent'])
+      }
+
+      // 检查替代规则的问题，如果返回了有内容，说明没 BUG
+      if (win && (data?.Replacers || []).length > 0) {
+        win.webContents.send('client-mitmV2-content-replacer-update', data.Replacers)
+      }
+
+      // 如果是强制更新的话，一般通过这里触发
+      if (win && data?.JustContentReplacer) {
+        win.webContents.send('client-mitmV2-content-replacer-update', data.Replacers)
+      }
+
+      // 检查如果是 exec result 的话，对应字段应该是
+      if (win && data['HaveMessage']) {
+        win.webContents.send('client-mitmV2-message', data['Message'])
+        return
+      }
+
+      // 看看当前系统的 hooks 有哪些
+      if (win && data['GetCurrentHook']) {
+        win.webContents.send('client-mitmV2-hooks', data['Hooks'])
+        return
+      }
+
+      // 把劫持到的信息发送回前端
+      if (win) {
+        if (data.JustFilter) {
+          win.webContents.send('client-mitmV2-filter', data.FilterData)
+          return
+        }
+        if (!data.ManualHijackListAction) return
+        win.webContents.send('client-mitmV2-hijacked', { ...data })
+      }
+    })
+    stream.on('error', (err) => {
+      stream = null
+      destroyMessage()
+      currentDownstreamProxyRuleId = ''
+      currentDownstreamProxy = ''
+      if (err.code && win) {
+        switch (err.code) {
+          case 1:
+            win.webContents.send('client-mitmV2-error', '')
+            return
+          default:
+            win.webContents.send('client-mitmV2-error', err.details || `${err}`)
+            return
+        }
+      }
+    })
+    stream.on('end', () => {
+      if (stream) {
+        stream.cancel()
+      }
+      stream = null
+      destroyMessage()
+      currentDownstreamProxyRuleId = ''
+      currentDownstreamProxy = ''
+    })
+    currentHost = Host
+    currentPort = Port
+    currentDownstreamProxy = DownstreamProxy
+    currentDownstreamProxyRuleId = DownstreamProxyRuleId || ''
+    if (stream) {
+      const { send, destroy } = createMessageSender(stream)
+      sendMessage = send
+      destroyMessage = destroy
+      if (params.hasOwnProperty('extra')) {
+        delete params.extra
+      }
+      const value = {
+        ...params,
+        ...extra,
+        DisableWebsocketCompression: !extra.DisableWebsocketCompression,
+      }
+      sendMessage(value)
+    }
+  })
+  ipcMain.handle('mitmV2-stop-call', () => {
+    if (stream) {
+      stream.cancel()
+      stream = null
+      mitmClient = null
+    }
+    currentDownstreamProxyRuleId = ''
+    currentDownstreamProxy = ''
+  })
+
+  /**手动劫持 相关操作 */
+  ipcMain.handle('mitmV2-manual-hijack-message', (e, params) => {
+    if (stream) {
+      const value = {
+        ManualHijackControl: true,
+        ManualHijackMessage: params,
+      }
+      sendMessage(value)
+    }
+  })
+
+  // 设置mitm filter
+  const asyncSetMITMFilter = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().SetMITMFilter(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+
+        resolve(data)
+      })
+    })
+  }
+
+  ipcMain.handle('mitmV2-set-filter', async (e, params) => {
+    if (stream) {
+      sendMessage({ ...params, UpdateFilter: true })
+    }
+    return await asyncSetMITMFilter(params)
+  })
+
+  // 设置mitm Hijack filter
+  const asyncSetMITMHijackFilter = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().SetMITMHijackFilter(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+
+        resolve(data)
+      })
+    })
+  }
+  ipcMain.handle('mitmV2-hijack-set-filter', async (e, params) => {
+    if (stream) {
+      sendMessage({ HijackFilterData: params.FilterData, UpdateHijackFilter: true })
+    }
+    return await asyncSetMITMHijackFilter(params)
+  })
+
+  // 开始追踪
+  let traceStream
+  let isFirstTraceData = true
+  ipcMain.handle('start-mitm-plugin-trace', async (e, params) => {
+    if (!win) return
+
+    if (!stream) {
+      win.webContents.send('start-mitm-plugin-trace-error', 'MITM 劫持未启动')
+      return
+    }
+
+    if (traceStream) {
+      win.webContents.send('mitm-plugin-trace-start-success')
+      return
+    }
+
+    traceStream = getClient().PluginTrace()
+    if (traceStream) {
+      traceStream.write(params)
+    }
+
+    isFirstTraceData = true
+    traceStream.on('data', (data) => {
+      if (data['ResponseType'] === 'control_result') {
+        if (data['Success']) {
+          if (isFirstTraceData) {
+            isFirstTraceData = false
+            win.webContents.send('mitm-plugin-trace-start-success')
+          }
+        } else if (data.Message) {
+          win.webContents.send('start-mitm-plugin-trace-error', data.Message)
+        }
+      } else if (data['ResponseType'] === 'stats_update') {
+        win.webContents.send('mitm-plugin-stats-update', data)
+      } else if (data['ResponseType'] === 'trace_update') {
+        win.webContents.send('mitm-plugin-trace-update', data)
+      }
+    })
+    traceStream.on('error', (err) => {
+      traceStream = null
+      win.webContents.send('start-mitm-plugin-trace-error', `${err}`)
+    })
+    traceStream.on('end', () => {
+      if (traceStream) {
+        traceStream.cancel()
+      }
+      traceStream = null
+      win.webContents.send('mitm-plugin-trace-end')
+    })
+  })
+
+  // 取消特定Trace
+  ipcMain.handle('mitm-plugin-traceID-cancel', (e, traceID) => {
+    if (!traceStream) return
+    traceStream.write({
+      ControlMode: 'cancel_trace',
+      TraceID: traceID,
+    })
+  })
+
+  // 停止追踪
+  ipcMain.handle('mitm-plugin-trace-stop', () => {
+    if (!traceStream) return
+    traceStream.cancel()
+    traceStream = null
+  })
+
+  // 进程监听
+  const handlerHelper = require('./handleStreamWithContext')
+  const streamWatchProcessConnectionMap = new Map()
+  ipcMain.handle('cancel-WatchProcessConnection', handlerHelper.cancelHandler(streamWatchProcessConnectionMap))
+  ipcMain.handle('WatchProcessConnection', (e, params, token) => {
+    let existedStream = streamWatchProcessConnectionMap.get(token)
+    if (existedStream) {
+      existedStream.write(params)
+      return
+    }
+    let stream = getClient().WatchProcessConnection()
+    handlerHelper.registerHandler(win, stream, streamWatchProcessConnectionMap, token)
+    stream.write(params)
+  })
+}
+
+
+============================================================
+# 核心/端口扫描
+# 文件: app\main\handlers\portScan.js
+============================================================
+const { ipcMain } = require('electron')
+const FS = require('fs')
+const AdmZip = require('adm-zip')
+const { XMLParser } = require('fast-xml-parser')
+const parser = new XMLParser({ ignoreAttributes: false })
+
+// 列名转索引（A → 0, B → 1）
+function columnToIndex(col) {
+  let index = 0
+  for (let i = 0; i < col.length; i++) {
+    index = index * 26 + (col.charCodeAt(i) - 64)
+  }
+  return index - 1
+}
+
+// 解析 sharedStrings
+function parseSharedStrings(xml) {
+  if (!xml) return []
+  const json = parser.parse(xml)
+  const si = json?.sst?.si || []
+  const arr = Array.isArray(si) ? si : [si]
+
+  return arr.map((item) => {
+    if (item.t) return item.t
+    if (item.r) return item.r.map((r) => r.t).join('')
+    return ''
+  })
+}
+
+// 解析 sheet
+function parseSheetData(sheetXml, sharedStrings) {
+  const json = parser.parse(sheetXml)
+  const rows = json?.worksheet?.sheetData?.row || []
+  const rowArr = Array.isArray(rows) ? rows : [rows]
+
+  const result = []
+
+  rowArr.forEach((row) => {
+    const rowData = []
+    const cells = row.c || []
+    const cellArr = Array.isArray(cells) ? cells : [cells]
+
+    cellArr.forEach((cell) => {
+      const ref = cell['@_r'] // A1
+      if (!ref) return
+
+      const col = ref.replace(/\d/g, '')
+      const colIndex = columnToIndex(col)
+
+      let value = cell.v ?? ''
+
+      // sharedStrings
+      if (cell['@_t'] === 's') {
+        value = sharedStrings[value] || ''
+      }
+
+      rowData[colIndex] = value
+    })
+
+    // 补空位
+    for (let i = 0; i < rowData.length; i++) {
+      if (rowData[i] === undefined) rowData[i] = ''
+    }
+
+    result.push(rowData)
+  })
+
+  return result
+}
+
+// 解析 xlsx
+function parseXlsx(filePath) {
+  const zip = new AdmZip(filePath)
+
+  // sharedStrings
+  let sharedStrings = []
+  const sharedEntry = zip.getEntry('xl/sharedStrings.xml')
+  if (sharedEntry) {
+    sharedStrings = parseSharedStrings(sharedEntry.getData().toString())
+  }
+
+  // workbook
+  const workbookXml = zip.getEntry('xl/workbook.xml').getData().toString()
+  const workbookJson = parser.parse(workbookXml)
+
+  const sheets = workbookJson?.workbook?.sheets?.sheet || []
+  const sheetList = Array.isArray(sheets) ? sheets : [sheets]
+
+  const result = []
+
+  for (let i = 0; i < sheetList.length; i++) {
+    const sheet = sheetList[i]
+    const name = sheet['@_name']
+
+    const sheetPath = `xl/worksheets/sheet${i + 1}.xml`
+    const sheetEntry = zip.getEntry(sheetPath)
+    if (!sheetEntry) continue
+
+    const sheetXml = sheetEntry.getData().toString()
+    const data = parseSheetData(sheetXml, sharedStrings)
+
+    result.push({
+      name,
+      data,
+    })
+  }
+
+  return result
+}
+
+module.exports = (win, getClient) => {
+  const handlerHelper = require('./handleStreamWithContext')
+
+  const streamPortScanMap = new Map()
+  ipcMain.handle('cancel-PortScan', handlerHelper.cancelHandler(streamPortScanMap))
+  ipcMain.handle('PortScan', (e, params, token) => {
+    let stream = getClient().PortScan(params)
+    handlerHelper.registerHandler(win, stream, streamPortScanMap, token)
+  })
+
+  const asyncFetchFileContent = (params) => {
+    return new Promise((resolve, reject) => {
+      const type = params.split('.').pop().toLowerCase()
+      const typeArr = ['csv', 'xls', 'xlsx']
+
+      // 读取Excel
+      if (typeArr.includes(type)) {
+        try {
+          // ❗ xls 不支持
+          if (type === 'xls') {
+            return reject(new Error('暂不支持 .xls，请转为 .xlsx'))
+          }
+
+          // csv 直接读
+          if (type === 'csv') {
+            FS.readFile(params, 'utf-8', (err, data) => {
+              if (err) return reject(err)
+
+              const rows = data.split(/\r?\n/).map((line) => line.split(','))
+
+              resolve([
+                {
+                  name: 'Sheet1',
+                  data: rows,
+                },
+              ])
+            })
+            return
+          }
+
+          // xlsx 解析
+          const result = parseXlsx(params)
+          resolve(result)
+        } catch (err) {
+          reject(err)
+        }
+      }
+      // 读取txt
+      else {
+        FS.readFile(params, 'utf-8', function (err, data) {
+          if (err) {
+            reject(err)
+          } else {
+            resolve(data)
+          }
+        })
+      }
+    })
+  }
+
+  // 获取证书(ps:asyncFetchFileContent此方法读取有误)
+  const asyncFetchCertificate = (params) => {
+    return new Promise((resolve, reject) => {
+      // 读取 .pfx 文件
+      FS.readFile(params, (err, data) => {
+        if (err) {
+          reject(err)
+        } else {
+          resolve(data)
+        }
+
+        // 处理 .pfx 文件的内容，例如解析证书
+        // 这里可能需要使用 `crypto` 模块进行进一步的处理
+        // 例如：crypto.createCredentials
+      })
+    })
+  }
+
+  const streamSimpleDetectMap = new Map()
+
+  ipcMain.handle('cancel-SimpleDetect', handlerHelper.cancelHandler(streamSimpleDetectMap))
+
+  ipcMain.handle('SimpleDetect', (e, params, token) => {
+    let stream = getClient().SimpleDetect(params)
+    handlerHelper.registerHandler(win, stream, streamSimpleDetectMap, token)
+  })
+
+  const streamSimpleDetectCreatReportMap = new Map()
+
+  ipcMain.handle('cancel-SimpleDetectCreatReport', handlerHelper.cancelHandler(streamSimpleDetectCreatReportMap))
+
+  ipcMain.handle('SimpleDetectCreatReport', (e, params, token) => {
+    let stream = getClient().SimpleDetectCreatReport(params)
+    handlerHelper.registerHandler(win, stream, streamSimpleDetectCreatReportMap, token)
+  })
+
+  const asyncSaveCancelSimpleDetect = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().SaveCancelSimpleDetect(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  ipcMain.handle('SaveCancelSimpleDetect', async (e, params) => {
+    return await asyncSaveCancelSimpleDetect(params)
+  })
+
+  const asyncGetSimpleDetectUnfinishedTask = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().GetSimpleDetectUnfinishedTask(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  ipcMain.handle('GetSimpleDetectUnfinishedTask', async (e, params) => {
+    return await asyncGetSimpleDetectUnfinishedTask(params)
+  })
+
+  const asyncGetSimpleDetectUnfinishedTaskByUid = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().GetSimpleDetectUnfinishedTaskByUid(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  ipcMain.handle('GetSimpleDetectUnfinishedTaskByUid', async (e, params) => {
+    return await asyncGetSimpleDetectUnfinishedTaskByUid(params)
+  })
+
+  const asyncPopSimpleDetectUnfinishedTaskByUid = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().PopSimpleDetectUnfinishedTaskByUid(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  ipcMain.handle('PopSimpleDetectUnfinishedTaskByUid', async (e, params) => {
+    return await asyncPopSimpleDetectUnfinishedTaskByUid(params)
+  })
+
+  const streamRecoverSimpleDetectUnfinishedTaskMap = new Map()
+  ipcMain.handle(
+    'cancel-RecoverSimpleDetectUnfinishedTask',
+    handlerHelper.cancelHandler(streamRecoverSimpleDetectUnfinishedTaskMap),
+  )
+  ipcMain.handle('RecoverSimpleDetectUnfinishedTask', (e, params, token) => {
+    let stream = getClient().RecoverSimpleDetectUnfinishedTask(params)
+    handlerHelper.registerHandler(win, stream, streamRecoverSimpleDetectUnfinishedTaskMap, token)
+  })
+
+  // 获取URL的IP地址
+  ipcMain.handle('fetch-file-content', async (e, params) => {
+    return await asyncFetchFileContent(params)
+  })
+
+  // 获取证书内容
+  ipcMain.handle('fetch-certificate-content', async (e, params) => {
+    return await asyncFetchCertificate(params)
+  })
+
+  const asyncQuerySimpleDetectUnfinishedTask = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().QuerySimpleDetectUnfinishedTask(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  ipcMain.handle('QuerySimpleDetectUnfinishedTask', async (e, params) => {
+    return await asyncQuerySimpleDetectUnfinishedTask(params)
+  })
+
+  const asyncGetSimpleDetectRecordRequestById = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().GetSimpleDetectRecordRequestById(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  ipcMain.handle('GetSimpleDetectRecordRequestById', async (e, params) => {
+    return await asyncGetSimpleDetectRecordRequestById(params)
+  })
+
+  const asyncDeleteSimpleDetectUnfinishedTask = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().DeleteSimpleDetectUnfinishedTask(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  ipcMain.handle('DeleteSimpleDetectUnfinishedTask', async (e, params) => {
+    return await asyncDeleteSimpleDetectUnfinishedTask(params)
+  })
+
+  const streamRecoverSimpleDetectTaskMap = new Map()
+  ipcMain.handle('cancel-RecoverSimpleDetectTask', handlerHelper.cancelHandler(streamRecoverSimpleDetectTaskMap))
+  ipcMain.handle('RecoverSimpleDetectTask', (e, params, token) => {
+    let stream = getClient().RecoverSimpleDetectTask(params)
+    handlerHelper.registerHandler(win, stream, streamRecoverSimpleDetectTaskMap, token)
+  })
+}
+
+
+============================================================
+# 核心/反连日志
+# 文件: app\main\handlers\reverse-connlogger.js
+============================================================
+const { ipcMain } = require('electron')
+
+module.exports = {
+  register: (win, getClient) => {
+    // asyncRequireDNSLogDomain wrapper
+    const asyncRequireDNSLogDomain = (params) => {
+      return new Promise((resolve, reject) => {
+        getClient().RequireDNSLogDomain(params, (err, data) => {
+          if (err) {
+            reject(err)
+            return
+          }
+          resolve(data)
+        })
+      })
+    }
+    ipcMain.handle('RequireDNSLogDomain', async (e, params) => {
+      return await asyncRequireDNSLogDomain(params)
+    })
+
+    const asyncRequireDNSLogDomainByScript = (params) => {
+      return new Promise((resolve, reject) => {
+        getClient().RequireDNSLogDomainByScript(params, (err, data) => {
+          if (err) {
+            reject(err)
+            return
+          }
+          resolve(data)
+        })
+      })
+    }
+    ipcMain.handle('RequireDNSLogDomainByScript', async (e, params) => {
+      return await asyncRequireDNSLogDomainByScript(params)
+    })
+
+    // asyncQuerySupportedDnsLogPlatforms wrapper
+    const asyncQuerySupportedDnsLogPlatforms = (params) => {
+      return new Promise((resolve, reject) => {
+        getClient().QuerySupportedDnsLogPlatforms(params, (err, data) => {
+          if (err) {
+            reject(err)
+            return
+          }
+          resolve(data)
+        })
+      })
+    }
+    ipcMain.handle('QuerySupportedDnsLogPlatforms', async (e, params) => {
+      return await asyncQuerySupportedDnsLogPlatforms(params)
+    })
+
+    // asyncQueryDNSLogByToken wrapper
+    const asyncQueryDNSLogByToken = (params) => {
+      return new Promise((resolve, reject) => {
+        getClient().QueryDNSLogByToken(params, (err, data) => {
+          if (err) {
+            reject(err)
+            return
+          }
+          resolve(data)
+        })
+      })
+    }
+    ipcMain.handle('QueryDNSLogByToken', async (e, params) => {
+      return await asyncQueryDNSLogByToken(params)
+    })
+
+    const asyncQueryDNSLogTokenByScript = (params) => {
+      return new Promise((resolve, reject) => {
+        getClient().QueryDNSLogTokenByScript(params, (err, data) => {
+          if (err) {
+            reject(err)
+            return
+          }
+          resolve(data)
+        })
+      })
+    }
+    ipcMain.handle('QueryDNSLogTokenByScript', async (e, params) => {
+      return await asyncQueryDNSLogTokenByScript(params)
+    })
+
+    // dnslog-页面询问菜单是否已启用并发出获取参数请求
+    ipcMain.handle('dnslog-page-to-menu', async (e) => {
+      win.webContents.send('dnslog-page-to-menu-callback')
+      return
+    })
+    // dnslog-菜单向页面发送参数
+    ipcMain.handle('dnslog-menu-to-page', async (e, params) => {
+      win.webContents.send('dnslog-menu-to-page-callback', params)
+      return
+    })
+    // dnslog-页面改变参数并同步菜单参数
+    ipcMain.handle('dnslog-page-change-menu', async (e, params) => {
+      win.webContents.send('dnslog-page-change-menu-callback', params)
+      return
+    })
+    // dnslog-菜单点击详情的页面跳转
+    ipcMain.handle('dnslog-info-details', async (e, params) => {
+      win.webContents.send('dnslog-info-details-callback', params)
+      return
+    })
+
+    // asyncQueryICMPTrigger wrapper
+    const asyncQueryICMPTrigger = (params) => {
+      return new Promise((resolve, reject) => {
+        getClient().QueryICMPTrigger(params, (err, data) => {
+          if (err) {
+            reject(err)
+            return
+          }
+          resolve(data)
+        })
+      })
+    }
+    ipcMain.handle('QueryICMPTrigger', async (e, params) => {
+      return await asyncQueryICMPTrigger(params)
+    })
+
+    // asyncRequireICMPRandomLength wrapper
+    const asyncRequireICMPRandomLength = (params) => {
+      return new Promise((resolve, reject) => {
+        getClient().RequireICMPRandomLength(params, (err, data) => {
+          if (err) {
+            reject(err)
+            return
+          }
+          resolve(data)
+        })
+      })
+    }
+    ipcMain.handle('RequireICMPRandomLength', async (e, params) => {
+      return await asyncRequireICMPRandomLength(params)
+    })
+
+    // asyncRequireRandomPortToken wrapper
+    const asyncRequireRandomPortToken = (params) => {
+      return new Promise((resolve, reject) => {
+        getClient().RequireRandomPortToken(params, (err, data) => {
+          if (err) {
+            reject(err)
+            return
+          }
+          resolve(data)
+        })
+      })
+    }
+    ipcMain.handle('RequireRandomPortToken', async (e, params) => {
+      return await asyncRequireRandomPortToken(params)
+    })
+
+    // asyncQueryRandomPortTrigger wrapper
+    const asyncQueryRandomPortTrigger = (params) => {
+      return new Promise((resolve, reject) => {
+        getClient().QueryRandomPortTrigger(params, (err, data) => {
+          if (err) {
+            reject(err)
+            return
+          }
+          resolve(data)
+        })
+      })
+    }
+    ipcMain.handle('QueryRandomPortTrigger', async (e, params) => {
+      return await asyncQueryRandomPortTrigger(params)
+    })
+  },
+}
+
+
+============================================================
+# 核心/Yak脚本执行
+# 文件: app\main\handlers\execYak.js
+============================================================
+const { ipcMain, dialog } = require('electron')
+const FS = require('fs')
+const PATH = require('path')
+
+module.exports = (win, getClient) => {
+  const handlerHelper = require('./handleStreamWithContext')
+
+  const streamExecMap = new Map()
+  ipcMain.handle('cancel-ExecYakCode', handlerHelper.cancelHandler(streamExecMap))
+  ipcMain.handle('ExecYakCode', (e, params, token) => {
+    let stream = getClient().Exec(params)
+    handlerHelper.registerHandler(win, stream, streamExecMap, token)
+  })
+
+  let stream
+  ipcMain.handle('cancel-yak', async () => {
+    if (stream) stream.cancel()
+  })
+  ipcMain.handle('cancel-exec-yak', async () => {
+    if (stream) stream.cancel()
+  })
+  ipcMain.handle('exec-yak', async (e, execRequest) => {
+    stream = getClient().Exec(execRequest)
+    stream.on('data', (e) => {
+      if (!win) {
+        return
+      }
+      win.webContents.send('client-yak-data', e)
+    })
+    stream.on('error', (e) => {
+      if (!win) {
+        return
+      }
+      win.webContents.send('client-yak-error', e)
+    })
+    stream.on('end', () => {
+      stream.cancel()
+      stream = null
+      if (!win) {
+        return
+      }
+      win.webContents.send('client-yak-end')
+    })
+  })
+
+  ipcMain.handle('yak-exec-history', async (e, req) => {
+    getClient().QueryExecHistory(req, (err, response) => {
+      if (win && err) {
+        win.webContents.send('client-yak-exec-history', err.details || 'execHistory querying unknown error')
+      } else win && response
+      {
+        win.webContents.send('client-yak-exec-history', response)
+      }
+    })
+  })
+
+  // asyncQueryExecHistory wrapper
+  const asyncQueryExecHistory = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().QueryExecHistory(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  ipcMain.handle('QueryExecHistory', async (e, params) => {
+    return await asyncQueryExecHistory(params)
+  })
+
+  // 弹出保存窗口
+  const asyncSaveFileDialog = async (params) => {
+    return new Promise((resolve, reject) => {
+      dialog
+        .showSaveDialog(win, {
+          title: '保存文件',
+          defaultPath: params,
+        })
+        .then((res) => {
+          const params = res
+          params.name = PATH.basename(res.filePath)
+          resolve(params)
+        })
+    })
+  }
+  ipcMain.handle('show-save-dialog', async (e, params) => {
+    return await asyncSaveFileDialog(params)
+  })
+
+  // 删除文件
+  const asyncDeleteCodeFile = (params) => {
+    return new Promise((resolve, reject) => {
+      FS.unlink(params, function (err) {
+        if (err) reject(err)
+        else resolve('success')
+      })
+    })
+  }
+  ipcMain.handle('delelte-code-file', async (e, params) => {
+    return await asyncDeleteCodeFile(params)
+  })
+
+  //判断文件是否存在
+  const asyncIsExistsFile = (params) => {
+    return new Promise((resolve, reject) => {
+      FS.access(params, FS.constants.F_OK, function (err) {
+        if (err) resolve(err)
+        else reject('fail')
+      })
+    })
+  }
+  ipcMain.handle('is-exists-file', async (e, params) => {
+    return await asyncIsExistsFile(params)
+  })
+
+  //文件重命名
+  const asyncRenameFile = (params) => {
+    return new Promise((resolve, reject) => {
+      FS.rename(params.old, params.new, function (err) {
+        if (err) reject(err)
+        else resolve('success')
+      })
+    })
+  }
+  ipcMain.handle('rename-file', async (e, params) => {
+    if (!params.old || !params.new) return 'fail'
+    return await asyncRenameFile(params)
+  })
+
+  // 将内容写入文件,文件未存在则新建文件后再进行写入
+  const asyncWriteFile = (params) => {
+    return new Promise((resolve, reject) => {
+      FS.writeFile(params.route, params.data, function (err) {
+        if (err) reject(err)
+        else resolve('success')
+      })
+    })
+  }
+  ipcMain.handle('write-file', async (e, params) => {
+    if (!params.route || !params.data) return 'fail'
+    return await asyncWriteFile(params)
+  })
+
+  // 批量执行脚本的新接口：通过一个短 Filter 执行
+  const streamExecutePacketYakScriptMap = new Map()
+  ipcMain.handle('cancel-ExecutePacketYakScript', handlerHelper.cancelHandler(streamExecutePacketYakScriptMap))
+  ipcMain.handle('ExecutePacketYakScript', (e, params, token) => {
+    let stream = getClient().ExecutePacketYakScript(params)
+    handlerHelper.registerHandler(win, stream, streamExecutePacketYakScriptMap, token)
+  })
+
+  const streamExecYakitPluginsByYakScriptFilterMap = new Map()
+  ipcMain.handle(
+    'cancel-ExecYakitPluginsByYakScriptFilter',
+    handlerHelper.cancelHandler(streamExecYakitPluginsByYakScriptFilterMap),
+  )
+  ipcMain.handle('ExecYakitPluginsByYakScriptFilter', (e, params, token) => {
+    let stream = getClient().ExecYakitPluginsByYakScriptFilter(params)
+    handlerHelper.registerHandler(win, stream, streamExecYakitPluginsByYakScriptFilterMap, token)
+  })
+
+  const streamExecPacketScanMap = new Map()
+  ipcMain.handle('cancel-ExecPacketScan', handlerHelper.cancelHandler(streamExecPacketScanMap))
+  ipcMain.handle('ExecPacketScan', (e, params, token) => {
+    let stream = getClient().ExecPacketScan(params)
+    handlerHelper.registerHandler(win, stream, streamExecPacketScanMap, token)
+  })
+
+  const asyncGetYakScriptTags = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().GetYakScriptTags(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  // 删除本地插件,带条件
+  ipcMain.handle('GetYakScriptTags', async (e, params) => {
+    return await asyncGetYakScriptTags(params)
+  })
+
+  /* 追加查看引擎输出的接口 */
+  const streamAttachCombinedOutputMap = new Map()
+  ipcMain.handle('cancel-AttachCombinedOutput', handlerHelper.cancelHandler(streamAttachCombinedOutputMap))
+  ipcMain.handle('AttachCombinedOutput', (e, params, token) => {
+    let stream = getClient().AttachCombinedOutput(params)
+    handlerHelper.registerHandler(win, stream, streamAttachCombinedOutputMap, token)
+  })
+
+  const streamInteractiveRunYakCodeMap = new Map()
+  ipcMain.handle('cancel-InteractiveRunYakCode', handlerHelper.cancelHandler(streamInteractiveRunYakCodeMap))
+  ipcMain.handle('InteractiveRunYakCodeWrite', (e, token, data) => {
+    let stream = streamInteractiveRunYakCodeMap.get(token)
+    if (!!stream) {
+      stream.write(data)
+    }
+  })
+  ipcMain.handle('InteractiveRunYakCode', (e, token) => {
+    let stream = getClient().CreateYaklangShell()
+    handlerHelper.registerHandler(win, stream, streamInteractiveRunYakCodeMap, token)
+
+    streamInteractiveRunYakCodeMap.set(token, stream)
+    stream.on('data', (data) => {
+      if (!win) {
+        return
+      }
+      if (data.Scope && data.Scope.length > 0) {
+        win.webContents.send(`${token}-data-scope`, data.Scope)
+      }
+      if (data.RawResult) {
+        if (Boolean(data.RawResult?.IsMessage) && data.RawResult.Message.toString() === 'signal-interactive-exec-end') {
+          win.webContents.send(`${token}-exec-end`)
+        } else {
+          win.webContents.send(`${token}-data`, data.RawResult)
+        }
+      }
+    })
+    stream.on('error', (error) => {
+      if (!win) {
+        return
+      }
+      win.webContents.send(`${token}-error`, error && error.details)
+    })
+    stream.on('end', () => {
+      streamInteractiveRunYakCodeMap.delete(token)
+      if (!win) {
+        return
+      }
+      win.webContents.send(`${token}-end`)
+    })
+  })
+
+  const streamHybridScanMap = new Map()
+  ipcMain.handle('cancel-HybridScan', handlerHelper.cancelHandler(streamHybridScanMap))
+  ipcMain.handle('HybridScan', (e, params, token) => {
+    let current = streamHybridScanMap.get(token)
+    if (current !== undefined) {
+      current.write(params)
+      return
+    }
+
+    console.info('HybridScan task start')
+    let stream = getClient().HybridScan()
+    stream.write(params)
+    handlerHelper.registerHandler(win, stream, streamHybridScanMap, token)
+  })
+
+  // asyncQueryHybridScanTask wrapper
+  const asyncQueryHybridScanTask = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().QueryHybridScanTask(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  ipcMain.handle('QueryHybridScanTask', async (e, params) => {
+    return await asyncQueryHybridScanTask(params)
+  })
+
+  // asyncDeleteHybridScanTask wrapper
+  const asyncDeleteHybridScanTask = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().DeleteHybridScanTask(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  ipcMain.handle('DeleteHybridScanTask', async (e, params) => {
+    return await asyncDeleteHybridScanTask(params)
+  })
+}
+
+
+============================================================
+# 核心/AI-Agent集成
+# 文件: app\main\handlers\ai-agent.js
+============================================================
+const { ipcMain, shell } = require('electron')
+const handlerHelper = require('./handleStreamWithContext')
+const { yakProjects, yakTemp, aiImageTemp } = require('../filePath')
+const fs = require('fs')
+const path = require('path')
+
+module.exports = (win, getClient) => {
+  // #region AI-Task
+  let aiChatTaskPool = new Map()
+  // 开始执行 AI Task
+  ipcMain.handle('start-ai-task', async (e, token, params) => {
+    let stream = getClient().StartAITask()
+    handlerHelper.registerHandler(win, stream, aiChatTaskPool, token)
+    try {
+      stream.write({ ...params })
+    } catch (error) {
+      throw new Error(error)
+    }
+  })
+  // 发送信息给 AI Task
+  ipcMain.handle('send-ai-task', async (e, token, params) => {
+    const currentStream = aiChatTaskPool.get(token)
+    if (!currentStream) {
+      return Promise.reject('stream no exist')
+    }
+    try {
+      currentStream.write({ ...params })
+    } catch (error) {
+      throw new Error(error)
+    }
+  })
+  // 取消 AI Agent 聊天
+  ipcMain.handle('cancel-ai-task', handlerHelper.cancelHandler(aiChatTaskPool))
+  // #endregion
+
+  // #region AI-ReAct
+  let aiReActTaskPool = new Map()
+
+  // aiWriteChainMap 用于让write操作是一个顺序队列执行
+  let aiWriteChainMap = new Map()
+  // 写操作的错误处理方法，保证写操作失败不会中断后续操作
+  const safeWrite = async (stream, params, token) => {
+    try {
+      await stream.write({ ...params })
+      return { success: true, token, params }
+    } catch (error) {
+      // console.log("write error: ", error)
+      return { success: false, error, token, params }
+    }
+  }
+
+  // 开始执行 AI ReAct
+  ipcMain.handle('start-ai-re-act', async (e, token, params) => {
+    if (aiReActTaskPool.has(token)) {
+      return
+    }
+    let stream = getClient().StartAIReAct()
+    aiWriteChainMap.set(token, Promise.resolve())
+    let writeChain = aiWriteChainMap.get(token)
+    handlerHelper.registerHandler(win, stream, aiReActTaskPool, token)
+    try {
+      writeChain = writeChain.then(() => safeWrite(stream, params, token))
+      const qs = params?.Params?.UserQuery
+      if (!!qs) {
+        writeChain = writeChain.then(() =>
+          safeWrite(
+            stream,
+            {
+              IsFreeInput: true,
+              FreeInput: qs,
+              AttachedResourceInfo: params?.AttachedResourceInfo,
+              FocusModeLoop: params?.FocusModeLoop,
+            },
+            token,
+          ),
+        )
+      }
+      aiWriteChainMap.set(token, writeChain)
+    } catch (error) {
+      throw new Error(error)
+    }
+  })
+  // 发送信息给 AI ReAct
+  ipcMain.handle('send-ai-re-act', async (e, token, params) => {
+    const currentStream = aiReActTaskPool.get(token)
+    if (!currentStream) {
+      return Promise.reject('stream no exist')
+    }
+    if (!aiWriteChainMap.has(token)) {
+      aiWriteChainMap.set(token, Promise.resolve())
+    }
+    try {
+      let writeChain = aiWriteChainMap.get(token)
+      writeChain = writeChain.then(() => safeWrite(currentStream, { ...params }, token))
+      aiWriteChainMap.set(token, writeChain)
+    } catch (error) {
+      throw new Error(error)
+    }
+  })
+  // 取消 AI ReAct
+  ipcMain.handle(
+    'cancel-ai-re-act',
+    handlerHelper.cancelHandler(aiReActTaskPool, (token) => {
+      aiWriteChainMap.delete(token)
+    }),
+  )
+  // #endregion
+
+  // #region AI-Forge
+  const asyncCreateAIForge = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().CreateAIForge(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  // 创建 AI-Forge
+  ipcMain.handle('CreateAIForge', async (e, params) => {
+    return await asyncCreateAIForge(params)
+  })
+
+  const asyncUpdateAIForge = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().UpdateAIForge(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  // 编辑 AI-Forge
+  ipcMain.handle('UpdateAIForge', async (e, params) => {
+    return await asyncUpdateAIForge(params)
+  })
+
+  const asyncDeleteAIForge = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().DeleteAIForge(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  // 删除 AI-Forge
+  ipcMain.handle('DeleteAIForge', async (e, params) => {
+    return await asyncDeleteAIForge(params)
+  })
+
+  const asyncQueryAIEvent = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().QueryAIEvent(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  // 查询QueryAIEvent
+  ipcMain.handle('QueryAIEvent', async (e, params) => {
+    return await asyncQueryAIEvent(params)
+  })
+
+  const asyncDeleteAIEvent = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().DeleteAIEvent(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  // 删除 AI 事件
+  ipcMain.handle('DeleteAIEvent', async (e, params) => {
+    return await asyncDeleteAIEvent(params)
+  })
+
+  const asyncQueryAIForge = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().QueryAIForge(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  const asyncDeleteAITask = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().DeleteAITask(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  // 删除 AI Task
+  ipcMain.handle('DeleteAITask', async (e, params) => {
+    return await asyncDeleteAITask(params)
+  })
+  // 查询 AI-Forge 列表
+  ipcMain.handle('QueryAIForge', async (e, params) => {
+    return await asyncQueryAIForge(params)
+  })
+
+  const asyncGetAIForge = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().GetAIForge(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  // 查询 AI-Forge 单个详情
+  ipcMain.handle('GetAIForge', async (e, params) => {
+    return await asyncGetAIForge(params)
+  })
+
+  // 单个导入AIForge
+  const importImportAIForgeMap = new Map()
+  ipcMain.handle('cancel-ImportAIForge', handlerHelper.cancelHandler(importImportAIForgeMap))
+  ipcMain.handle('ImportAIForge', (_, params, token) => {
+    let stream = getClient().ImportAIForge(params)
+    handlerHelper.registerHandler(win, stream, importImportAIForgeMap, token)
+  })
+
+  // 单个导出AIForge
+  const exportAIForgeMap = new Map()
+  ipcMain.handle('cancel-ExportAIForge', handlerHelper.cancelHandler(exportAIForgeMap))
+  ipcMain.handle('ExportAIForge', (_, params, token) => {
+    if (!fs.existsSync(yakProjects)) {
+      try {
+        fs.mkdirSync(yakProjects, { recursive: true })
+      } catch (error) {}
+    }
+    let stream = getClient().ExportAIForge(params)
+    handlerHelper.registerHandler(win, stream, exportAIForgeMap, token)
+  })
+
+  // 生成 yakit-projects 文件夹下 temp 里面的文件路径
+  ipcMain.handle('GenerateTempFilePath', async (e, fileName) => {
+    return path.join(yakTemp, fileName)
+  })
+  // #endregion
+
+  // #region AI-Triage
+  let aiChatTriagePool = new Map()
+  // 开始执行 AI Triage
+  ipcMain.handle('start-ai-triage', async (e, token, params) => {
+    let stream = getClient().StartAITriage()
+    handlerHelper.registerHandler(win, stream, aiChatTriagePool, token)
+    try {
+      stream.write({ ...params })
+      const qs = params?.Params?.UserQuery
+      if (!!qs) stream.write({ IsFreeInput: true, FreeInput: qs })
+    } catch (error) {
+      throw new Error(error)
+    }
+  })
+  // 发送信息给 AI Triage
+  ipcMain.handle('send-ai-triage', async (e, token, params) => {
+    const currentStream = aiChatTriagePool.get(token)
+    if (!currentStream) {
+      return Promise.reject('stream no exist')
+    }
+    try {
+      currentStream.write({ ...params })
+    } catch (error) {
+      throw new Error(error)
+    }
+  })
+  // 取消 AI Triage
+  ipcMain.handle('cancel-ai-triage', handlerHelper.cancelHandler(aiChatTriagePool))
+  // #endregion
+
+  //#region ai tool
+  const asyncGetAIToolList = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().GetAIToolList(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  /**获取工具列表 */
+  ipcMain.handle('GetAIToolList', async (e, param) => {
+    return await asyncGetAIToolList(param)
+  })
+
+  const asyncDeleteAITool = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().DeleteAITool(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  /**获取工具列表 */
+  ipcMain.handle('DeleteAITool', async (e, param) => {
+    return await asyncDeleteAITool(param)
+  })
+
+  const asyncSaveAIToolV2 = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().SaveAIToolV2(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  /**新增工具 */
+  ipcMain.handle('SaveAIToolV2', async (e, param) => {
+    return await asyncSaveAIToolV2(param)
+  })
+
+  const asyncUpdateAITool = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().UpdateAITool(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  /**新增工具 */
+  ipcMain.handle('UpdateAITool', async (e, param) => {
+    return await asyncUpdateAITool(param)
+  })
+
+  const asyncToggleAIToolFavorite = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().ToggleAIToolFavorite(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+
+  /**收藏 */
+  ipcMain.handle('ToggleAIToolFavorite', async (e, param) => {
+    return await asyncToggleAIToolFavorite(param)
+  })
+
+  const asyncAIToolGenerateMetadata = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().AIToolGenerateMetadata(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  ipcMain.handle('AIToolGenerateMetadata', async (e, param) => {
+    return await asyncAIToolGenerateMetadata(param)
+  })
+  //#endregion
+
+  //#region ai 首页
+  const asyncGetRandomAIMaterials = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().GetRandomAIMaterials(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  // 获取首页随机列表数据
+  ipcMain.handle('GetRandomAIMaterials', async (e, params) => {
+    return await asyncGetRandomAIMaterials(params)
+  })
+
+  const asyncQueryAISession = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().QueryAISession(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  // 查询 AI 会话列表
+  ipcMain.handle('QueryAISession', async (e, params) => {
+    return await asyncQueryAISession(params)
+  })
+
+  const asyncDeleteAISession = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().DeleteAISession(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+
+  // 删除 AI 会话
+  ipcMain.handle('DeleteAISession', async (e, params) => {
+    return await asyncDeleteAISession(params)
+  })
+
+  const asyncUpdateAISessionTitle = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().UpdateAISessionTitle(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  // 修改 AI 会话标题
+  ipcMain.handle('UpdateAISessionTitle', async (e, params) => {
+    return await asyncUpdateAISessionTitle(params)
+  })
+
+  // #endregion
+
+  // #region AI-Log-Export
+  const asyncExportAILogs = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().ExportAILogs(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  ipcMain.handle('ExportAILogs', async (e, params) => {
+    const res = await asyncExportAILogs(params)
+    if (res && res.FilePath) {
+      shell.showItemInFolder(res.FilePath)
+    }
+    return res
+  })
+  // #endregion
+
+  // #region AI-Focus 专注模式
+  const asyncQueryAIFocus = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().QueryAIFocus(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  // 查询 AI-Focus 专注模式
+  ipcMain.handle('QueryAIFocus', async (e, params) => {
+    return await asyncQueryAIFocus(params)
+  })
+  // #endregion
+  // #region AI-Memory AI记忆库
+  const asyncCreateAIMemoryEntity = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().CreateAIMemoryEntity(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  // 创建 AI-Memory AI记忆
+  ipcMain.handle('CreateAIMemoryEntity', async (e, params) => {
+    return await asyncCreateAIMemoryEntity(params)
+  })
+
+  const asyncUpdateAIMemoryEntity = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().UpdateAIMemoryEntity(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  // 更新 AI-Memory AI记忆
+  ipcMain.handle('UpdateAIMemoryEntity', async (e, params) => {
+    return await asyncUpdateAIMemoryEntity(params)
+  })
+
+  const asyncDeleteAIMemoryEntity = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().DeleteAIMemoryEntity(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  // 删除 AI-Memory AI记忆
+  ipcMain.handle('DeleteAIMemoryEntity', async (e, params) => {
+    return await asyncDeleteAIMemoryEntity(params)
+  })
+
+  const asyncQueryAIMemoryEntity = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().QueryAIMemoryEntity(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  // 查询 AI-Memory AI记忆
+  ipcMain.handle('QueryAIMemoryEntity', async (e, params) => {
+    return await asyncQueryAIMemoryEntity(params)
+  })
+
+  const asyncGetAIMemoryEntity = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().GetAIMemoryEntity(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  // 获取 AI-Memory AI记忆详情
+  ipcMain.handle('GetAIMemoryEntity', async (e, params) => {
+    return await asyncGetAIMemoryEntity(params)
+  })
+
+  const asyncCountAIMemoryEntityTags = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().CountAIMemoryEntityTags(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  // 获取 AI-Memory tag统计
+  ipcMain.handle('CountAIMemoryEntityTags', async (e, params) => {
+    return await asyncCountAIMemoryEntityTags(params)
+  })
+  // #endregion
+
+  // region AI-Image
+  ipcMain.handle('save-ai-image', (event, params, token) => {
+    return new Promise((resolve, reject) => {
+      const { buffer, filename, sessionID = '', chatDataStoreKey = '' } = params
+      const url = path.join(aiImageTemp, chatDataStoreKey, sessionID)
+      // 确保目录存在
+      if (!fs.existsSync(url)) {
+        fs.mkdirSync(url, { recursive: true })
+      }
+      const savePath = path.join(url, filename)
+      const data = Buffer.from(buffer)
+
+      const totalSize = data.length
+      // 设置分块写入大小为 256KB，图片较小时也能触发多次进度
+      const chunkSize = 50 * 1024
+      const writeStream = fs.createWriteStream(savePath)
+      let offset = 0
+
+      const writeNextChunk = () => {
+        if (offset >= totalSize) {
+          writeStream.end()
+          return
+        }
+
+        const end = Math.min(offset + chunkSize, totalSize)
+        const chunk = data.slice(offset, end)
+        const canContinue = writeStream.write(chunk)
+
+        offset = end
+
+        // 计算并向前端发送当前文件的写入进度事件
+        const progress = Math.round((offset / totalSize) * 100)
+        // 通过唯一标识区分并发送进度事件，确保前端能正确关联到对应的文件写入操作
+        event.sender.send(`save-ai-image-progress-${token}`, progress)
+
+        if (canContinue) {
+          // 利用 setImmediate 避免阻塞主线程事件循环，让进度消息能顺畅返回前端
+          setImmediate(writeNextChunk)
+        } else {
+          writeStream.once('drain', writeNextChunk)
+        }
+      }
+
+      writeStream.on('finish', () => {
+        resolve(savePath)
+        event.sender.send(`save-ai-image-finish-${token}`, savePath)
+      })
+
+      writeStream.on('error', (err) => {
+        event.sender.send(`save-ai-image-err-${token}`, err)
+        reject(err)
+      })
+
+      writeNextChunk()
+    })
+  })
+
+  ipcMain.handle('delete-ai-image', async (event, params, token) => {
+    try {
+      const { sessionID = [], chatDataStoreKey = '' } = params
+      let errorMsg = ''
+      // 参数校验
+      if (!token || typeof token !== 'string') {
+        errorMsg = 'token 必须是一个字符串'
+      }
+      if (!chatDataStoreKey || typeof chatDataStoreKey !== 'string') {
+        errorMsg = 'chatDataStoreKey 必须是一个字符串'
+      }
+      if (!Array.isArray(sessionID) || sessionID.some((item) => typeof item !== 'string')) {
+        errorMsg = 'sessionID 必须要是一个string类型的数组'
+      }
+      if (!!errorMsg) {
+        event.sender.send(`delete-ai-image-err-${token}`, { targetPath: '', error: errorMsg })
+        event.sender.send(`delete-ai-image-finish-${token}`)
+        throw new Error(errorMsg)
+      }
+      const sessionIDs = sessionID.filter(Boolean)
+      const totalSize = sessionIDs.length
+
+      if (totalSize === 0) {
+        if (chatDataStoreKey) {
+          const targetPath = path.join(aiImageTemp, chatDataStoreKey)
+          if (fs.existsSync(targetPath)) {
+            // 先读取目录下的内容，以此计算进度
+            const files = await fs.promises.readdir(targetPath)
+            const filesLen = files.length
+
+            if (filesLen > 0) {
+              let delCount = 0
+              for (let i = 0; i < filesLen; i++) {
+                const subPath = path.join(targetPath, files[i])
+                try {
+                  await fs.promises.rm(subPath, { recursive: true, force: true })
+                } catch (error) {
+                  event.sender.send(`delete-ai-image-err-${token}`, { targetPath, error: error.message })
+                }
+
+                delCount++
+
+                const progress = Math.round((delCount / filesLen) * 100)
+                event.sender.send(`delete-ai-image-progress-${token}`, progress)
+              }
+            }
+            try {
+              // 子文件清理完后，删除自身这个已清空的父文件夹
+              await fs.promises.rm(targetPath, { recursive: true, force: true })
+            } catch (error) {
+              event.sender.send(`delete-ai-image-err-${token}`, { targetPath, error: error.message })
+            }
+          }
+        } else {
+          event.sender.send(`delete-ai-image-progress-${token}`, 100)
+        }
+        event.sender.send(`delete-ai-image-finish-${token}`)
+        return true
+      }
+
+      let deletedCount = 0
+
+      for (let i = 0; i < totalSize; i++) {
+        const id = sessionIDs[i]
+        if (id) {
+          // 强制转为 String 防止外部意外传入数字导致 path.join 崩溃
+          const targetPath = path.join(aiImageTemp, chatDataStoreKey, String(id))
+
+          if (fs.existsSync(targetPath)) {
+            try {
+              // 使用异步的 rm 替代 unlink，支持删除整个文件夹，且确保顺序执行以计算进度
+              await fs.promises.rm(targetPath, { recursive: true, force: true })
+            } catch (error) {
+              event.sender.send(`delete-ai-image-err-${token}`, { targetPath, error: error.message })
+            }
+          }
+        }
+
+        deletedCount++
+        const progress = Math.round((deletedCount / totalSize) * 100)
+        event.sender.send(`delete-ai-image-progress-${token}`, progress)
+      }
+
+      event.sender.send(`delete-ai-image-finish-${token}`)
+
+      return true
+    } catch (error) {
+      if (token) {
+        event.sender.send(`delete-ai-image-err-${token}`, { targetPath: '', error: error.message })
+        event.sender.send(`delete-ai-image-finish-${token}`)
+      }
+      throw error
+    }
+  })
+  // #endregion
+}
+
+
+============================================================
+# 核心/Payload管理
+# 文件: app\main\handlers\payloads.js
+============================================================
+const { ipcMain } = require('electron')
+const fs = require('fs')
+module.exports = (win, getClient) => {
+  const asyncQueryPayload = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().QueryPayload(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  // 获取table列表
+  ipcMain.handle('QueryPayload', async (e, params) => {
+    return await asyncQueryPayload(params)
+  })
+
+  const asyncQueryPayloadFromFile = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().QueryPayloadFromFile(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+
+  // 获取编辑器内容
+  ipcMain.handle('QueryPayloadFromFile', async (e, params) => {
+    return await asyncQueryPayloadFromFile(params)
+  })
+
+  const asyncUpdateAllPayloadGroup = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().UpdateAllPayloadGroup(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  // 更新顺序数组
+  ipcMain.handle('UpdateAllPayloadGroup', async (e, params) => {
+    return await asyncUpdateAllPayloadGroup(params)
+  })
+
+  const asyncRenamePayloadFolder = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().RenamePayloadFolder(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  // 重命名Folder
+  ipcMain.handle('RenamePayloadFolder', async (e, params) => {
+    return await asyncRenamePayloadFolder(params)
+  })
+
+  const asyncRenamePayloadGroup = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().RenamePayloadGroup(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  // 重命名Payload
+  ipcMain.handle('RenamePayloadGroup', async (e, params) => {
+    return await asyncRenamePayloadGroup(params)
+  })
+
+  const asyncCreatePayloadFolder = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().CreatePayloadFolder(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  // 新建文件夹
+  ipcMain.handle('CreatePayloadFolder', async (e, params) => {
+    return await asyncCreatePayloadFolder(params)
+  })
+
+  const asyncDeletePayloadByFolder = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().DeletePayloadByFolder(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  // 删除文件夹
+  ipcMain.handle('DeletePayloadByFolder', async (e, params) => {
+    return await asyncDeletePayloadByFolder(params)
+  })
+
+  const asyncDeletePayloadByGroup = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().DeletePayloadByGroup(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  // 删除Payload
+  ipcMain.handle('DeletePayloadByGroup', async (e, params) => {
+    return await asyncDeletePayloadByGroup(params)
+  })
+
+  // message DeletePayloadByIdRequest {
+  //     int64 Id = 1; // 用于删除一个
+  //     repeated int64 Ids = 2; // 删除多个
+  //   }
+  // asyncDeletePayload wrapper
+  const asyncDeletePayload = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().DeletePayload(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  ipcMain.handle('DeletePayload', async (e, params) => {
+    return await asyncDeletePayload(params)
+  })
+
+  const handlerHelper = require('./handleStreamWithContext')
+
+  // 数据库存储
+  const streamSavePayloadMap = new Map()
+  ipcMain.handle('cancel-SavePayload', handlerHelper.cancelHandler(streamSavePayloadMap))
+  ipcMain.handle('SavePayloadStream', (e, params, token) => {
+    let stream = getClient().SavePayloadStream(params)
+    handlerHelper.registerHandler(win, stream, streamSavePayloadMap, token)
+  })
+
+  // 文件存储
+  const streamPayloadFileMap = new Map()
+  ipcMain.handle('cancel-SavePayloadFile', handlerHelper.cancelHandler(streamPayloadFileMap))
+  ipcMain.handle('SavePayloadToFileStream', (e, params, token) => {
+    let stream = getClient().SavePayloadToFileStream(params)
+    handlerHelper.registerHandler(win, stream, streamPayloadFileMap, token)
+  })
+
+  // 大文件存储
+  const streamPayloadLargeFileMap = new Map()
+  ipcMain.handle('cancel-SavePayloadLargeFile', handlerHelper.cancelHandler(streamPayloadLargeFileMap))
+  ipcMain.handle('SavePayloadToLargeFileStream', (e, params, token) => {
+    let stream = getClient().SaveLargePayloadToFileStream(params)
+    handlerHelper.registerHandler(win, stream, streamPayloadLargeFileMap, token)
+  })
+
+  // 用于导出
+  const streamPayloadFromFileMap = new Map()
+  ipcMain.handle('cancel-ExportAllPayloadFromFile', handlerHelper.cancelHandler(streamPayloadFromFileMap))
+  ipcMain.handle('ExportAllPayloadFromFile', async (e, params, token) => {
+    let stream = getClient().ExportAllPayloadFromFile(params)
+    handlerHelper.registerHandler(win, stream, streamPayloadFromFileMap, token)
+  })
+  const streamAllPayloadMap = new Map()
+  ipcMain.handle('cancel-ExportAllPayload', handlerHelper.cancelHandler(streamAllPayloadMap))
+  ipcMain.handle('ExportAllPayload', async (e, params, token) => {
+    let stream = getClient().ExportAllPayload(params)
+    handlerHelper.registerHandler(win, stream, streamAllPayloadMap, token)
+  })
+  const streamPayloadBatchMap = new Map()
+  ipcMain.handle('cancel-ExportPayloadDBAndFile', handlerHelper.cancelHandler(streamPayloadBatchMap))
+  ipcMain.handle('ExportPayloadDBAndFile', async (e, params, token) => {
+    let stream = getClient().ExportPayloadDBAndFile(params)
+    handlerHelper.registerHandler(win, stream, streamPayloadBatchMap, token)
+  })
+
+  // 用于上传
+  const streamPayloadToOnlineMap = new Map()
+  ipcMain.handle('cancel-UploadPayloadToOnline', handlerHelper.cancelHandler(streamPayloadToOnlineMap))
+  ipcMain.handle('UploadPayloadToOnline', async (e, params, token) => {
+    let stream = getClient().UploadPayloadToOnline(params)
+    handlerHelper.registerHandler(win, stream, streamPayloadToOnlineMap, token)
+  })
+
+  // 用于下载
+  const streamDownloadPayloadMap = new Map()
+  ipcMain.handle('cancel-DownloadPayload', handlerHelper.cancelHandler(streamDownloadPayloadMap))
+  ipcMain.handle('DownloadPayload', async (e, params, token) => {
+    let stream = getClient().DownloadPayload(params)
+    handlerHelper.registerHandler(win, stream, streamDownloadPayloadMap, token)
+  })
+
+  // 用于去重
+  const streamRemoveDuplicateMap = new Map()
+  ipcMain.handle('cancel-RemoveDuplicatePayloads', handlerHelper.cancelHandler(streamRemoveDuplicateMap))
+  ipcMain.handle('RemoveDuplicatePayloads', async (e, params, token) => {
+    let stream = getClient().RemoveDuplicatePayloads(params)
+    handlerHelper.registerHandler(win, stream, streamRemoveDuplicateMap, token)
+  })
+
+  // 转换为数据库保存
+  const streamGroupToDatabaseMap = new Map()
+  ipcMain.handle('cancel-ConvertPayloadGroupToDatabase', handlerHelper.cancelHandler(streamGroupToDatabaseMap))
+  ipcMain.handle('ConvertPayloadGroupToDatabase', async (e, params, token) => {
+    let stream = getClient().ConvertPayloadGroupToDatabase(params)
+    handlerHelper.registerHandler(win, stream, streamGroupToDatabaseMap, token)
+  })
+
+  // 迁移数据
+  const streamMigratePayloadsMap = new Map()
+  ipcMain.handle('cancel-MigratePayloads', handlerHelper.cancelHandler(streamMigratePayloadsMap))
+  ipcMain.handle('MigratePayloads', async (e, params, token) => {
+    let stream = getClient().MigratePayloads(params)
+    handlerHelper.registerHandler(win, stream, streamMigratePayloadsMap, token)
+  })
+
+  const asyncUpdatePayload = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().UpdatePayload(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  // 备份到其他字典/修改table项
+  ipcMain.handle('UpdatePayload', async (e, params) => {
+    return await asyncUpdatePayload(params)
+  })
+
+  const asyncBackUpOrCopyPayloads = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().BackUpOrCopyPayloads(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  // 移动/复制到其他字典
+  ipcMain.handle('BackUpOrCopyPayloads', async (e, params) => {
+    return await asyncBackUpOrCopyPayloads(params)
+  })
+
+  const asyncGetAllPayloadGroup = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().GetAllPayloadGroup(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  // 获取Payload列表
+  ipcMain.handle('GetAllPayloadGroup', async (e, params) => {
+    return await asyncGetAllPayloadGroup(params)
+  })
+
+  const asyncUpdatePayloadToFile = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().UpdatePayloadToFile(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  // 更新文件内容
+  ipcMain.handle('UpdatePayloadToFile', async (e, params) => {
+    return await asyncUpdatePayloadToFile(params)
+  })
+
+  const asyncYakVersionAtLeast = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().YakVersionAtLeast(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  // 校验版本
+  ipcMain.handle('YakVersionAtLeast', async (e, params) => {
+    return await asyncYakVersionAtLeast(params)
+  })
+}
+
+
+============================================================
+# 核心/指纹识别
+# 文件: app\main\handlers\fingerprint.js
+============================================================
+const { ipcMain } = require('electron')
+const fs = require('fs')
+const path = require('path')
+const https = require('https')
+const { yakProjects } = require('../filePath')
+
+module.exports = (win, getClient) => {
+  const asyncGetAllFingerprintGroup = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().GetAllFingerprintGroup(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  // 获取本地指纹组列表数据
+  ipcMain.handle('GetAllFingerprintGroup', async (e, params) => {
+    return await asyncGetAllFingerprintGroup(params)
+  })
+
+  const asyncCreateFingerprintGroup = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().CreateFingerprintGroup(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  // 创建本地指纹组
+  ipcMain.handle('CreateFingerprintGroup', async (e, params) => {
+    return await asyncCreateFingerprintGroup(params)
+  })
+
+  const asyncRenameFingerprintGroup = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().RenameFingerprintGroup(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  // 更新本地指纹组
+  ipcMain.handle('RenameFingerprintGroup', async (e, params) => {
+    return await asyncRenameFingerprintGroup(params)
+  })
+
+  const asyncDeleteFingerprintGroup = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().DeleteFingerprintGroup(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  // 删除本地指纹组
+  ipcMain.handle('DeleteFingerprintGroup', async (e, params) => {
+    return await asyncDeleteFingerprintGroup(params)
+  })
+
+  const asyncQueryFingerprint = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().QueryFingerprint(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  // 获取本地指纹列表数据
+  ipcMain.handle('QueryFingerprint', async (e, params) => {
+    return await asyncQueryFingerprint(params)
+  })
+
+  const asyncDeleteFingerprint = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().DeleteFingerprint(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  // 删除本地指纹列表数据
+  ipcMain.handle('DeleteFingerprint', async (e, params) => {
+    return await asyncDeleteFingerprint(params)
+  })
+
+  const asyncUpdateFingerprint = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().UpdateFingerprint(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  // 更新本地指纹
+  ipcMain.handle('UpdateFingerprint', async (e, params) => {
+    return await asyncUpdateFingerprint(params)
+  })
+
+  const asyncCreateFingerprint = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().CreateFingerprint(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  // 创建本地指纹
+  ipcMain.handle('CreateFingerprint', async (e, params) => {
+    return await asyncCreateFingerprint(params)
+  })
+
+  // 导出指纹
+  const handlerHelper = require('./handleStreamWithContext')
+  const exportFingerprintMap = new Map()
+  ipcMain.handle('cancel-ExportFingerprint', handlerHelper.cancelHandler(exportFingerprintMap))
+  ipcMain.handle('ExportFingerprint', (_, params, token) => {
+    const { TargetPath } = params
+    if (!fs.existsSync(yakProjects)) {
+      try {
+        fs.mkdirSync(yakProjects, { recursive: true })
+      } catch (error) {}
+    }
+    params.TargetPath = path.join(yakProjects, TargetPath)
+    let stream = getClient().ExportFingerprint(params)
+    handlerHelper.registerHandler(win, stream, exportFingerprintMap, token)
+  })
+
+  // 导入指纹
+  const importFingerprintMap = new Map()
+  ipcMain.handle('cancel-ImportFingerprint', handlerHelper.cancelHandler(importFingerprintMap))
+  ipcMain.handle('ImportFingerprint', (_, params, token) => {
+    let stream = getClient().ImportFingerprint(params)
+    handlerHelper.registerHandler(win, stream, importFingerprintMap, token)
+  })
+
+  const asyncGetFingerprintGroupSetByFilter = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().GetFingerprintGroupSetByFilter(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  // 查询指纹集合的所属组交集
+  ipcMain.handle('GetFingerprintGroupSetByFilter', async (e, params) => {
+    return await asyncGetFingerprintGroupSetByFilter(params)
+  })
+
+  const asyncBatchUpdateFingerprintToGroup = (params) => {
+    return new Promise((resolve, reject) => {
+      getClient().BatchUpdateFingerprintToGroup(params, (err, data) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(data)
+      })
+    })
+  }
+  // 更新指纹里的本地组
+  ipcMain.handle('BatchUpdateFingerprintToGroup', async (e, params) => {
+    return await asyncBatchUpdateFingerprintToGroup(params)
+  })
+
+  const asyncDownloadFingerprint = (savePath) => {
+    return new Promise((resolve, reject) => {
+      if (!fs.existsSync(yakProjects)) {
+        try {
+          fs.mkdirSync(yakProjects, { recursive: true })
+        } catch (error) {}
+      }
+
+      // 判断是否有写入权限
+      const dir = path.dirname(savePath)
+      try {
+        fs.accessSync(dir, fs.constants.W_OK)
+      } catch (err) {
+        return reject(err)
+      }
+
+      let file
+      try {
+        file = fs.createWriteStream(savePath)
+      } catch (err) {
+        return reject(err)
+      }
+
+      // 关闭文件句柄
+      function safeUnlink(file, savePath, cb) {
+        if (file) {
+          try {
+            file.close(() => fs.unlink(savePath, cb))
+          } catch (e) {
+            fs.unlink(savePath, cb)
+          }
+        } else {
+          fs.unlink(savePath, cb)
+        }
+      }
+
+      const request = https.get('https://yaklang.oss-cn-beijing.aliyuncs.com/fingerprints.zip', (res) => {
+        if (res.statusCode !== 200) {
+          safeUnlink(file, savePath, () => {})
+          return reject(new Error(`Download failed with status ${res.statusCode}`))
+        }
+
+        res.pipe(file)
+
+        file.on('finish', () => {
+          file.close()
+          resolve(savePath)
+        })
+
+        // 文件写入失败
+        file.on('error', (err) => {
+          safeUnlink(file, savePath, () => {})
+          reject(err)
+        })
+
+        // 下载流错误
+        res.on('error', (err) => {
+          safeUnlink(file, savePath, () => {})
+          reject(err)
+        })
+      })
+
+      // 请求错误
+      request.on('error', (err) => {
+        safeUnlink(file, savePath, () => {})
+        reject(err)
+      })
+    })
+  }
+  // 下载默认指纹到指定路径
+  ipcMain.handle('DownloadFingerprint', async (e, savePath) => {
+    return await asyncDownloadFingerprint(savePath)
+  })
+}
+
+
+============================================================
+# 协议/gRPC接口定义
+# 文件: app\protos\grpc.proto
+============================================================
+syntax = "proto3";
+
+package ypb;
+option go_package = "/;ypb";
+
+message Empty {
+}
+
+message VersionResponse {
+  string Version = 1;
+}
+
+message GeneralResponse {
+  bool Ok = 1;
+  string Reason = 2;
+}
+
+message DeleteYakScriptRequest {
+  int64  Id = 3;
+  repeated int64 Ids = 4;
+}
+
+message ExecBatchYakScriptRequest {
+  // 目标会被自动拆分
+  string Target = 1;
+  string TargetFile = 11;
+
+  // 额外参数可以被添加
+  repeated ExecParamItem ExtraParams = 7;
+
+  // 筛选与限制
+  string Keyword = 2;
+  repeated string ExcludedYakScript = 22;
+  bool DisableNucleiWorkflow = 23;
+  int64 Limit = 3;
+
+  // 默认总用时
+  int64 TotalTimeoutSeconds = 4;
+
+  // 模块类型，默认为 nuclei
+  string Type = 5;
+
+  // 并发（进程）
+  int64 Concurrent = 6;
+
+  // 精确使用脚本名称
+  // 要注意，这个 Scripts 和 PluginFilter 是冲突的
+  repeated string ScriptNames = 8;
+
+  // Tags with exclude / include
+  QueryYakScriptRequest PluginFilter = 12;
+  bool EnablePluginFilter = 13;
+
+  // 设置一个代理
+  string Proxy = 14;
+
+  // 每个进程的任务数量
+  int64 ProgressTaskCount = 15;
+
+  // 基础进度 - 这个默认是 0.1 一般别用，只在 Recover 的时候可能才会有用处
+  double BaseProgress = 16;
+  // 这个很关键，不然会报错
+  bool FromRecover = 17;
+
+  string YakScriptOnlineGroup = 18;
+  string TaskName = 19;
+}
+
+message ExecBatchYakScriptResult {
+  string Id = 1;
+  string Status = 2;
+  bool Ok = 4;
+  string Reason = 5;
+  bool Exploitable = 6;
+
+  // 脚本的详细信息
+  YakScript PoC = 7;
+  ExecResult Result = 8;
+
+  // 如果是整体进度信息，则在这儿展示
+  // 处理这几个消息的时候，其他都不应该生效
+  bool ProgressMessage = 9;
+  double ProgressPercent = 10;
+  int64 ProgressTotal = 11;
+  int64 ProgressCount = 12;
+
+  // 正在执行中的进程数
+  int64 ProgressRunning = 17;
+
+  // 正在执行中的扫描任务数量
+  int64 ScanTaskExecutingCount = 18;
+
+  // 任务相关内容
+  string Target = 13;
+  repeated ExecParamItem ExtraParam = 14;
+  string TaskId = 15;
+
+  // 当前时间
+  int64 Timestamp = 16;
+}
+
+message GetYakScriptByIdRequest {
+  int64 Id = 1;
+}
+
+message GetYakScriptByNameRequest {
+  string Name = 1;
+  string UUID = 2;
+}
+
+message GetYakScriptByOnlineIDRequest {
+  string UUID = 1;
+  int64 OnlineID = 2;
+}
+
+
+message VerifySystemCertificateResponse {
+  bool valid = 1;
+  string Reason = 2;
+}
+
+service Yak {
+  // version
+  rpc Version(Empty) returns (VersionResponse);
+  rpc YakVersionAtLeast(YakVersionAtLeastRequest) returns (GeneralResponse);
+
+  // echo 通常用于测试服务是否通畅
+  rpc Echo(EchoRequest) returns(EchoResposne);
+
+  // 握手 用于检查前端是否可以连接当前引擎
+  rpc Handshake(HandshakeRequest) returns (HandshakeResponse);
+
+  rpc VerifySystemCertificate(Empty) returns (VerifySystemCertificateResponse);
+  rpc InstallMITMCertificate(Empty) returns (GeneralResponse);
+
+  // 中间人劫持
+  rpc MITM(stream MITMRequest) returns (stream MITMResponse);
+  rpc SetMITMFilter(SetMITMFilterRequest) returns (SetMITMFilterResponse);
+  rpc GetMITMFilter(Empty) returns (SetMITMFilterRequest);
+  rpc ResetMITMFilter(Empty) returns (SetMITMFilterRequest); //重置MITM启动前的过滤器
+  rpc DownloadMITMCert(Empty) returns (MITMCert);
+  rpc DownloadMITMGMCert(Empty) returns (MITMCert);
+
+  rpc WatchProcessConnection(stream WatchProcessRequest) returns (stream WatchProcessResponse);
+  rpc MITMV2(stream MITMV2Request) returns (stream MITMV2Response);
+
+  // 开启端口
+  rpc OpenPort(stream Input) returns (stream Output);
+
+  // Exec
+  rpc Exec(ExecRequest) returns (stream ExecResult);
+  rpc QueryExecHistory(ExecHistoryRequest) returns (ExecHistoryRecordResponse);
+  rpc RemoveExecHistory(Empty) returns (Empty);
+  rpc LoadNucleiTemplates(Empty) returns (Empty);
+  rpc AutoUpdateYakModule(Empty) returns (stream ExecResult);
+  rpc ExecYakScript(ExecRequest) returns (stream ExecResult);
+
+  // ExecBatch Script
+  rpc ExecBatchYakScript(ExecBatchYakScriptRequest) returns (stream ExecBatchYakScriptResult);
+  rpc GetExecBatchYakScriptUnfinishedTask(Empty) returns (GetExecBatchYakScriptUnfinishedTaskResponse);
+  rpc GetExecBatchYakScriptUnfinishedTaskByUid(GetExecBatchYakScriptUnfinishedTaskByUidRequest) returns (ExecBatchYakScriptRequest);
+  rpc PopExecBatchYakScriptUnfinishedTaskByUid(GetExecBatchYakScriptUnfinishedTaskByUidRequest) returns (ExecBatchYakScriptRequest);
+  rpc RecoverExecBatchYakScriptUnfinishedTask(RecoverExecBatchYakScriptUnfinishedTaskRequest) returns (stream ExecBatchYakScriptResult);
+
+  // yakScript
+  rpc QueryYakScript(QueryYakScriptRequest) returns (QueryYakScriptResponse);
+  rpc QueryYakScriptByYakScriptName(QueryYakScriptRequest) returns (stream YakScript);
+  rpc SaveYakScript(YakScript) returns (YakScript);
+  rpc DeleteYakScript(DeleteYakScriptRequest) returns (Empty);
+  rpc GetYakScriptById(GetYakScriptByIdRequest) returns (YakScript);
+  rpc GetYakScriptByName(GetYakScriptByNameRequest) returns (YakScript);
+  rpc GetYakScriptByOnlineID(GetYakScriptByOnlineIDRequest) returns (YakScript);
+  rpc IgnoreYakScript(DeleteYakScriptRequest) returns (Empty);
+  rpc UnIgnoreYakScript(DeleteYakScriptRequest) returns (Empty);
+  rpc ExportYakScript(ExportYakScriptRequest) returns (ExportYakScriptResponse);
+  rpc ExportYakScriptStream(ExportYakScriptStreamRequest) returns (stream ExecResult);
+  rpc ImportYakScriptStream(ImportYakScriptStreamRequest) returns (stream ExecResult);
+  rpc ExecutePacketYakScript(ExecutePacketYakScriptParams) returns (stream ExecResult);
+  rpc ExecuteBatchPacketYakScript(ExecuteBatchPacketYakScriptParams) returns (stream ExecBatchYakScriptResult);
+  rpc GetYakScriptTags(Empty) returns (GetYakScriptTagsResponse);
+  rpc QueryYakScriptLocalAndUser(QueryYakScriptLocalAndUserRequest) returns (QueryYakScriptLocalAndUserResponse);
+  rpc QueryYakScriptByOnlineGroup(QueryYakScriptByOnlineGroupRequest) returns (QueryYakScriptLocalAndUserResponse);
+  rpc QueryYakScriptLocalAll(Empty) returns (QueryYakScriptLocalAndUserResponse);
+  rpc QueryYakScriptByNames(QueryYakScriptByNamesRequest) returns (QueryYakScriptByNamesResponse);
+  rpc QueryYakScriptByIsCore(QueryYakScriptByIsCoreRequest) returns (QueryYakScriptByIsCoreResponse);
+  // 接口废弃
+  rpc QueryYakScriptRiskDetailByCWE(QueryYakScriptRiskDetailByCWERequest) returns (QueryYakScriptRiskDetailByCWEResponse);
+  // 接口废弃
+  rpc YakScriptRiskTypeList(Empty) returns (YakScriptRiskTypeListResponse);
+  rpc SaveNewYakScript(SaveNewYakScriptRequest) returns (YakScript);
+  rpc SaveYakScriptToOnline(SaveYakScriptToOnlineRequest) returns (stream SaveYakScriptToOnlineResponse);
+
+  // 结构变化,接口废弃
+  rpc ExportLocalYakScript(ExportLocalYakScriptRequest) returns (ExportLocalYakScriptResponse);
+  rpc ExportLocalYakScriptStream(ExportLocalYakScriptRequest) returns (stream ExportYakScriptLocalResponse);
+
+  rpc ImportYakScript(ImportYakScriptRequest) returns (stream ImportYakScriptResult);
+  rpc SetYakScriptSkipUpdate(SetYakScriptSkipUpdateRequest) returns (Empty);
+  rpc QueryYakScriptSkipUpdate(QueryYakScriptRequest) returns (QueryYakScriptSkipUpdateResponse);
+
+  // YakScript Group
+  rpc QueryYakScriptGroup(QueryYakScriptGroupRequest) returns (QueryYakScriptGroupResponse);
+  rpc SaveYakScriptGroup(SaveYakScriptGroupRequest) returns (Empty);
+  rpc RenameYakScriptGroup(RenameYakScriptGroupRequest) returns (Empty);
+  rpc DeleteYakScriptGroup(DeleteYakScriptGroupRequest) returns (Empty);
+  rpc GetYakScriptGroup(QueryYakScriptRequest) returns (GetYakScriptGroupResponse);
+  rpc ResetYakScriptGroup(ResetYakScriptGroupRequest) returns (Empty);
+  rpc SetGroup(SetGroupRequest) returns (Empty);
+
+
+  // HTTPFlow
+  rpc GetHTTPFlowByHash(GetHTTPFlowByHashRequest) returns (HTTPFlow);
+  rpc GetHTTPFlowById(GetHTTPFlowByIdRequest) returns (HTTPFlow);
+  rpc GetHTTPFlowBodyById(GetHTTPFlowBodyByIdRequest) returns (stream GetHTTPFlowBodyByIdResponse);
+  rpc GetHTTPFlowByIds(GetHTTPFlowByIdsRequest) returns (HTTPFlows);
+  rpc QueryHTTPFlows(QueryHTTPFlowRequest) returns (QueryHTTPFlowResponse);
+  rpc DeleteHTTPFlows(DeleteHTTPFlowRequest) returns (Empty);
+  rpc SetTagForHTTPFlow(SetTagForHTTPFlowRequest) returns (Empty);
+  rpc QueryHTTPFlowsIds(QueryHTTPFlowsIdsRequest) returns (QueryHTTPFlowsIdsResponse);
+  rpc HTTPFlowsFieldGroup(HTTPFlowsFieldGroupRequest) returns (HTTPFlowsFieldGroupResponse);
+  rpc HTTPFlowsShare(HTTPFlowsShareRequest) returns (HTTPFlowsShareResponse);
+  rpc HTTPFlowsExtract(HTTPFlowsExtractRequest) returns (Empty);
+  rpc GetHTTPFlowBare(HTTPFlowBareRequest) returns (HTTPFlowBareResponse);
+  rpc ExportHTTPFlows(ExportHTTPFlowsRequest) returns(QueryHTTPFlowResponse);
+  rpc HTTPFlowsToOnline(HTTPFlowsToOnlineRequest) returns (Empty);
+  rpc QueryHTTPFlowsProcessNames(QueryHTTPFlowRequest) returns (QueryHTTPFlowsProcessNamesResponse);
+  rpc HTTPFlowsToOnlineBatch(HTTPFlowsToOnlineBatchRequest) returns (HTTPFlowsToOnlineBatchResponse);
+
+  // 流量分析器
+  rpc AnalyzeHTTPFlow(AnalyzeHTTPFlowRequest) returns (stream AnalyzeHTTPFlowResponse);
+  // 从一个 FuzzerRequest 中提取 Url
+  rpc ExtractUrl(FuzzerRequest) returns (ExtractedUrl);
+
+  // Fuzzer
+  rpc GetHistoryHTTPFuzzerTask(GetHistoryHTTPFuzzerTaskRequest) returns (HistoryHTTPFuzzerTaskDetail);
+  rpc QueryHistoryHTTPFuzzerTask(Empty) returns (HistoryHTTPFuzzerTasks);
+  rpc QueryHistoryHTTPFuzzerTaskEx(QueryHistoryHTTPFuzzerTaskExParams) returns (HistoryHTTPFuzzerTasksResponse);
+  rpc DeleteHistoryHTTPFuzzerTask(DeleteHistoryHTTPFuzzerTaskRequest) returns (Empty);
+  rpc HTTPFuzzer(FuzzerRequest) returns (stream FuzzerResponse);
+  rpc HTTPFuzzerSequence(FuzzerRequests) returns (stream FuzzerSequenceResponse);
+  rpc HTTPFuzzerGroup(GroupHTTPFuzzerRequest) returns (stream GroupHTTPFuzzerResponse);
+  rpc PreloadHTTPFuzzerParams(PreloadHTTPFuzzerParamsRequest) returns (PreloadHTTPFuzzerParamsResponse);
+  rpc RenderVariables(RenderVariablesRequest) returns (RenderVariablesResponse);
+  rpc MatchHTTPResponse(MatchHTTPResponseParams) returns (MatchHTTPResponseResult);
+  rpc ExtractHTTPResponse(ExtractHTTPResponseParams) returns (ExtractHTTPResponseResult);
+  rpc RedirectRequest(RedirectRequestParams) returns (FuzzerResponse);
+  rpc HTTPRequestMutate(HTTPRequestMutateParams) returns (MutateResult);
+  rpc HTTPResponseMutate(HTTPResponseMutateParams) returns (MutateResult);
+  rpc FixUploadPacket(FixUploadPacketRequest) returns (FixUploadPacketResponse);
+  rpc IsMultipartFormDataRequest(FixUploadPacketRequest) returns (IsMultipartFormDataRequestResult);
+  rpc GenerateExtractRule(GenerateExtractRuleRequest) returns (GenerateExtractRuleResponse);
+  rpc ExtractData(stream ExtractDataRequest) returns (stream ExtractDataResponse);
+  rpc ImportHTTPFuzzerTaskFromYaml(ImportHTTPFuzzerTaskFromYamlRequest) returns (ImportHTTPFuzzerTaskFromYamlResponse);
+  rpc ExportHTTPFuzzerTaskToYaml(ExportHTTPFuzzerTaskToYamlRequest) returns (ExportHTTPFuzzerTaskToYamlResponse);
+  rpc RenderHTTPFuzzerPacket(RenderHTTPFuzzerPacketRequest) returns (RenderHTTPFuzzerPacketResponse);
+
+  rpc SaveFuzzerLabel(SaveFuzzerLabelRequest) returns (Empty);
+  rpc QueryFuzzerLabel(Empty) returns (QueryFuzzerLabelResponse);
+  rpc DeleteFuzzerLabel(DeleteFuzzerLabelRequest) returns (Empty);
+
+  rpc SaveFuzzerConfig(SaveFuzzerConfigRequest) returns (DbOperateMessage);
+  rpc QueryFuzzerConfig(QueryFuzzerConfigRequest) returns (QueryFuzzerConfigResponse);
+  rpc DeleteFuzzerConfig(DeleteFuzzerConfigRequest) returns (DbOperateMessage);
+
+  // HTTPFuzzerResponse
+  // 这个挺特殊的，因为数据包太多了，会卡，所以后端会保存一份，通过这个接口做缓存查询
+  rpc QueryHTTPFuzzerResponseByTaskId(QueryHTTPFuzzerResponseByTaskIdRequest) returns (QueryHTTPFuzzerResponseByTaskIdResponse) ;
+
+  // WebSocket
+  rpc CreateWebsocketFuzzer(stream ClientWebsocketRequest) returns (stream ClientWebsocketResponse);
+  rpc QueryWebsocketFlowByHTTPFlowWebsocketHash(QueryWebsocketFlowByHTTPFlowWebsocketHashRequest) returns (WebsocketFlows);
+  rpc DeleteWebsocketFlowByHTTPFlowWebsocketHash(DeleteWebsocketFlowByHTTPFlowWebsocketHashRequest) returns (Empty);
+  rpc DeleteWebsocketFlowAll(Empty) returns (Empty);
+
+  // FuzzerResponse 对象转 HTTPFlow：以便分析和模糊测试
+  rpc ConvertFuzzerResponseToHTTPFlow(FuzzerResponse) returns (HTTPFlow);
+
+  // 渲染 Fuzzer 模版
+  rpc StringFuzzer(StringFuzzerRequest) returns (StringFuzzerResponse);
+
+  // 分析一个 HTTP 请求详情
+  rpc HTTPRequestAnalyzer(HTTPRequestAnalysisMaterial) returns (HTTPRequestAnalysis);
+
+  // 用户自定义代码补全
+  rpc CreateSnippet(SnippetsRequest) returns (Empty);
+  rpc UpdateSnippet(EditSnippetsRequest) returns (Empty);
+  rpc DeleteSnippets(QuerySnippetsRequest) returns (Empty);
+  rpc QuerySnippets(QuerySnippetsRequest) returns (SnippetsResponse);
+
+  // 编码解码
+  rpc Codec(CodecRequest) returns (CodecResponse);
+  rpc NewCodec(CodecRequestFlow) returns (CodecResponse);
+  rpc GetAllCodecMethods(Empty) returns(CodecMethods);
+
+  rpc SaveCodecFlow(CustomizeCodecFlow) returns (Empty);
+  rpc UpdateCodecFlow(UpdateCodecFlowRequest) returns (Empty);
+  rpc DeleteCodecFlow(DeleteCodecFlowRequest) returns (Empty);
+  rpc GetAllCodecFlow(Empty) returns (GetCodecFlowResponse);
+  rpc PacketPrettifyHelper(PacketPrettifyHelperRequest) returns (PacketPrettifyHelperResponse);
+
+  // Payload 相关接口
+  // database payload group
+  rpc QueryPayload(QueryPayloadRequest) returns (QueryPayloadResponse); // query by [keyword/group/folder]
+  rpc QueryPayloadFromFile(QueryPayloadFromFileRequest) returns (QueryPayloadFromFileResponse);
+  // delete by [id/group/folder]
+  rpc DeletePayloadByFolder(NameRequest) returns (Empty);
+  rpc DeletePayloadByGroup(DeletePayloadByGroupRequest) returns (Empty);
+  rpc DeletePayload(DeletePayloadRequest) returns (Empty);
+  // save payload to database
+  rpc SavePayload(SavePayloadRequest) returns (Empty);
+  rpc SavePayloadStream(SavePayloadRequest) returns (stream SavePayloadProgress);
+  rpc SavePayloadToFileStream(SavePayloadRequest) returns (stream SavePayloadProgress);
+  rpc SaveLargePayloadToFileStream(SavePayloadRequest) returns (stream SavePayloadProgress);
+  // update group/folder/payload
+  rpc RenamePayloadFolder(RenameRequest) returns (Empty);
+  rpc RenamePayloadGroup(RenameRequest) returns (Empty); // rename
+  rpc UpdatePayload(UpdatePayloadRequest) returns (Empty); // edit
+  rpc UpdatePayloadToFile(UpdatePayloadToFileRequest) returns (Empty);
+  rpc BackUpOrCopyPayloads(BackUpOrCopyPayloadsRequest) returns (Empty);
+  // Folder and Group
+  // get and update all group with order
+  rpc GetAllPayloadGroup(Empty) returns (GetAllPayloadGroupResponse);
+  rpc UpdateAllPayloadGroup(UpdateAllPayloadGroupRequest) returns (Empty);
+  // get payload
+  rpc GetAllPayload(GetAllPayloadRequest) returns (GetAllPayloadResponse); // !已弃用 get payload by [group/folder]
+  rpc GetAllPayloadFromFile(GetAllPayloadRequest) returns (stream GetAllPayloadFromFileResponse); // !已弃用 get payload by [group/folder] from file
+  // export payload
+  rpc ExportAllPayload(GetAllPayloadRequest) returns (stream GetAllPayloadResponse); // get payload by [group/folder]
+  rpc ExportAllPayloadFromFile(GetAllPayloadRequest) returns (stream GetAllPayloadResponse); // get payload by [group/folder] from file
+  // create folder
+  rpc CreatePayloadFolder(NameRequest) returns (Empty);
+  // 去重
+  rpc RemoveDuplicatePayloads(NameRequest) returns (stream SavePayloadProgress);
+  // 转换为数据库保存
+  rpc CoverPayloadGroupToDatabase(NameRequest) returns (stream SavePayloadProgress); // !已弃用
+  rpc ConvertPayloadGroupToDatabase(NameRequest) returns (stream SavePayloadProgress);
+  // 迁移旧的payload
+  rpc MigratePayloads(Empty) returns (stream SavePayloadProgress);
+
+  // 批量导payload 数据库 已废弃
+  rpc ExportPayloadBatch(ExportPayloadBatchRequest) returns (stream GetAllPayloadResponse);
+  rpc UploadPayloadToOnline(UploadPayloadToOnlineRequest) returns (stream DownloadProgress);
+  rpc DownloadPayload(DownloadPayloadRequest) returns (stream DownloadProgress);
+  // 批量导payload所有
+  rpc ExportPayloadDBAndFile(ExportPayloadDBAndFileRequest) returns (stream GetAllPayloadResponse);
+
+
+  // 自动生成补全
+  rpc GetYakitCompletionRaw(Empty) returns (YakitCompletionRawResponse);
+  rpc GetYakVMBuildInMethodCompletion(GetYakVMBuildInMethodCompletionRequest) returns (GetYakVMBuildInMethodCompletionResponse);
+  rpc StaticAnalyzeError(StaticAnalyzeErrorRequest) returns (StaticAnalyzeErrorResponse);
+  rpc YaklangCompileAndFormat(YaklangCompileAndFormatRequest) returns (YaklangCompileAndFormatResponse);
+
+  // LSP
+  rpc YaklangLanguageSuggestion(YaklangLanguageSuggestionRequest) returns (YaklangLanguageSuggestionResponse);
+  rpc YaklangLanguageFind(YaklangLanguageSuggestionRequest) returns (YaklangLanguageFindResponse);
+
+  //fuzztag suggestion
+  rpc FuzzTagSuggestion(FuzzTagSuggestionRequest) returns (YaklangLanguageSuggestionResponse);
+
+  // 从代码中提取yaklang数据
+  rpc YaklangInspectInformation(YaklangInspectInformationRequest) returns (YaklangInspectInformationResponse);
+  // 进行数据迁移使用
+  rpc YaklangGetCliCodeFromDatabase(YaklangGetCliCodeFromDatabaseRequest) returns (YaklangGetCliCodeFromDatabaseResponse);
+  // editor terminal 交互
+  rpc YaklangTerminal(stream Input) returns (stream Output);
+
+  // 端口扫描的封装
+  rpc PortScan(PortScanRequest) returns (stream ExecResult);
+  rpc ViewPortScanCode(Empty) returns (SimpleScript);
+
+  rpc SimpleDetect(RecordPortScanRequest) returns (stream ExecResult);
+  rpc SaveCancelSimpleDetect(RecordPortScanRequest) returns (Empty);
+  rpc SimpleDetectCreatReport(CreatReportRequest) returns (stream ExecResult);
+
+  // new interface
+  rpc QuerySimpleDetectUnfinishedTask(QueryUnfinishedTaskRequest) returns (QueryUnfinishedTaskResponse);
+  rpc GetSimpleDetectRecordRequestById(GetUnfinishedTaskDetailByIdRequest) returns (RecordPortScanRequest);
+  rpc DeleteSimpleDetectUnfinishedTask(DeleteUnfinishedTaskRequest) returns (Empty);
+  rpc RecoverSimpleDetectTask(RecoverUnfinishedTaskRequest) returns (stream ExecResult);
+  //----
+
+  // Deprecated interface
+  rpc GetSimpleDetectUnfinishedTask(Empty) returns (GetSimpleDetectUnfinishedTaskResponse);
+  rpc GetSimpleDetectUnfinishedTaskByUid(GetExecBatchYakScriptUnfinishedTaskByUidRequest) returns (RecordPortScanRequest);
+  rpc PopSimpleDetectUnfinishedTaskByUid(GetExecBatchYakScriptUnfinishedTaskByUidRequest) returns (RecordPortScanRequest);
+  rpc RecoverSimpleDetectUnfinishedTask(RecoverExecBatchYakScriptUnfinishedTaskRequest) returns (stream ExecResult);
+  // ----
+
+  // 资产管理
+  rpc QueryPorts(QueryPortsRequest) returns (QueryPortsResponse);
+  rpc DeletePorts(DeletePortsRequest) returns (Empty);
+  rpc QueryHosts(QueryHostsRequest) returns (QueryHostsResponse);
+  rpc DeleteHosts(DeleteHostsRequest) returns (Empty);
+  rpc QueryDomains(QueryDomainsRequest) returns(QueryDomainsResponse);
+  rpc DeleteDomains(DeleteDomainsRequest)returns(Empty);
+  rpc QueryPortsGroup(Empty)returns (QueryPortsGroupResponse);
+
+  // Yakit Store
+  rpc UpdateFromYakitResource(UpdateFromYakitResourceRequest) returns (Empty);
+  rpc UpdateFromGithub(UpdateFromGithubRequest) returns (Empty);
+
+  // Menu
+  rpc AddToMenu(AddToMenuRequest) returns (Empty);
+  rpc RemoveFromMenu(RemoveFromMenuRequest) returns (Empty);
+  rpc YakScriptIsInMenu(YakScriptIsInMenuRequest) returns (Empty);
+  rpc GetAllMenuItem(Empty) returns (MenuByGroup);
+  rpc DeleteAllMenuItem(Empty) returns (Empty);
+  rpc ImportMenuItem(ImportMenuItemRequest) returns (Empty);
+  rpc ExportMenuItem(Empty) returns (ExportMenuItemResult);
+  rpc GetMenuItemById(GetMenuItemByIdRequest) returns (MenuItem);
+  rpc QueryGroupsByYakScriptId(QueryGroupsByYakScriptIdRequest) returns (GroupNames);
+  rpc AddMenus(AddMenuRequest) returns (Empty);
+  rpc QueryAllMenuItem(QueryAllMenuItemRequest) returns (MenuByGroup);
+  rpc DeleteAllMenu(QueryAllMenuItemRequest) returns (Empty);
+
+  // NewMenu
+  rpc AddToNavigation(AddToNavigationRequest) returns (Empty);
+  rpc GetAllNavigationItem(GetAllNavigationRequest) returns (GetAllNavigationItemResponse);
+  rpc DeleteAllNavigation(GetAllNavigationRequest) returns (Empty);
+  rpc AddOneNavigation(AddOneNavigationRequest) returns (Empty);
+  rpc QueryNavigationGroups(QueryNavigationGroupsRequest) returns (GroupNames);
+
+  // document
+  rpc SaveMarkdownDocument(SaveMarkdownDocumentRequest) returns (Empty);
+  rpc GetMarkdownDocument(GetMarkdownDocumentRequest) returns (GetMarkdownDocumentResponse);
+  rpc DeleteMarkdownDocument(GetMarkdownDocumentRequest) returns (Empty);
+
+  // Crawler
+  rpc StartBasicCrawler(StartBasicCrawlerRequest)returns (ExecResult);
+  rpc ViewBasicCrawlerCode(Empty) returns (SimpleScript);
+  rpc GenerateWebsiteTree(GenerateWebsiteTreeRequest) returns (GenerateWebsiteTreeResponse);
+
+  // 对插件结果的操作
+  rpc QueryYakScriptExecResult(QueryYakScriptExecResultRequest) returns (QueryYakScriptExecResultResponse);
+  rpc QueryYakScriptNameInExecResult(Empty) returns (YakScriptNames);
+  rpc DeleteYakScriptExecResult(DeleteYakScriptExecResultRequest) returns (Empty);
+  rpc DeleteYakScriptExec(Empty) returns (Empty);
+
+  // Bruter
+  rpc StartBrute(StartBruteParams) returns (stream ExecResult);
+  rpc GetAvailableBruteTypes(Empty) returns (GetAvailableBruteTypesResponse);
+
+  // Tunnel Server RMI/DNSLog
+  rpc GetTunnelServerExternalIP(GetTunnelServerExternalIPParams) returns (GetTunnelServerExternalIPResponse);
+  rpc VerifyTunnelServerDomain(VerifyTunnelServerDomainParams) returns (VerifyTunnelServerDomainResponse) ;
+  rpc StartFacades(StartFacadesParams) returns (stream ExecResult);
+  rpc StartFacadesWithYsoObject(StartFacadesWithYsoParams) returns (stream ExecResult);
+  rpc ApplyClassToFacades(ApplyClassToFacadesParamsWithVerbose) returns (Empty);
+  rpc BytesToBase64(BytesToBase64Request) returns (BytesToBase64Response);
+  rpc ConfigGlobalReverse(ConfigGlobalReverseParams) returns (stream Empty);
+  rpc AvailableLocalAddr(Empty) returns (AvailableLocalAddrResponse);
+  rpc GetGlobalReverseServer(Empty) returns (GetGlobalReverseServerResponse);
+
+  // Risk
+  rpc QueryRisks(QueryRisksRequest) returns (QueryRisksResponse);
+  rpc QueryRisk(QueryRiskRequest) returns (Risk);
+  rpc DeleteRisk(DeleteRiskRequest) returns (Empty);
+  rpc QueryAvailableRiskType(Empty) returns (Fields);
+  rpc QueryAvailableRiskLevel(Empty) returns (Fields);
+  rpc QueryRiskTableStats(Empty) returns (RiskTableStats);
+  rpc ResetRiskTableStats(Empty) returns (Empty);
+  rpc QueryAvailableTarget(Empty) returns (Fields);
+  rpc QueryNewRisk(QueryNewRiskRequest) returns (QueryNewRiskResponse);
+  rpc NewRiskRead(NewRiskReadRequest) returns (Empty);
+  // 风险漏洞自动同步
+  rpc UploadRiskToOnline(UploadRiskToOnlineRequest) returns (Empty);
+  rpc SetTagForRisk(SetTagForRiskRequest) returns (Empty);
+  rpc QueryRiskTags(Empty) returns (QueryRiskTagsResponse);
+  rpc RiskFieldGroup(Empty) returns (RiskFieldGroupResponse);
+  // 误报反馈
+  rpc RiskFeedbackToOnline(UploadRiskToOnlineRequest) returns (Empty);
+
+  // Report
+  rpc QueryReports(QueryReportsRequest) returns(QueryReportsResponse);
+  rpc QueryReport(QueryReportRequest) returns (Report);
+  rpc DeleteReport(DeleteReportRequest) returns (Empty);
+  rpc QueryAvailableReportFrom(Empty) returns (Fields); // no implement
+
+  rpc DownloadReport(DownloadReportRequest) returns (Empty);
+
+  //Yso
+  rpc GetAllYsoGadgetOptions(Empty) returns (YsoOptionsWithVerbose);
+  rpc GetAllYsoClassOptions(YsoOptionsRequerstWithVerbose) returns (YsoOptionsWithVerbose);
+  rpc GetAllYsoClassGeneraterOptions(YsoOptionsRequerstWithVerbose) returns (YsoClassOptionsResponseWithVerbose);
+  rpc GenerateYsoCode(YsoOptionsRequerstWithVerbose) returns (YsoCodeResponse);
+  rpc GenerateYsoBytes(YsoOptionsRequerstWithVerbose) returns (YsoBytesResponse);
+  rpc YsoDump(YsoBytesObject)returns(YsoDumpResponse);
+
+  // WebShell
+  rpc CreateWebShell(WebShell) returns (WebShell);
+  rpc DeleteWebShell(DeleteWebShellRequest) returns (Empty);
+  rpc UpdateWebShell(WebShell) returns (WebShell);
+  rpc QueryWebShells(QueryWebShellsRequest) returns (QueryWebShellsResponse);
+  rpc Ping(WebShellRequest) returns (WebShellResponse);
+  rpc GetBasicInfo(WebShellRequest) returns (WebShellResponse);
+  rpc GenerateWebShell(ShellGenerate) returns(WebShellResponse);
+
+  // DNSLog / ICMP / RandomTrigger
+  rpc SetYakBridgeLogServer(YakDNSLogBridgeAddr) returns (Empty);
+... (截断，完整文件见原始仓库)
+
+

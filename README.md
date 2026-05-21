@@ -1,4 +1,136 @@
-# Haking Code
+# ⚡ Haking Code
+
+<div align="center">
+
+**全球最强的 AI 驱动网络安全终端 Agent**
+
+*当 AI 遇上渗透测试，当对抗共识遇上逆向工程*
+
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Bun](https://img.shields.io/badge/runtime-Bun-black.svg)](https://bun.sh)
+[![TypeScript](https://img.shields.io/badge/language-TypeScript-blue.svg)](https://www.typescriptlang.org)
+[![Security](https://img.shields.io/badge/domain-CyberSecurity-red.svg)]()
+
+</div>
+
+---
+
+> **Haking Code 不是一个工具集合器。它是一个会思考的安全研究员。**
+>
+> 它能在你睡觉的时候自主完成渗透测试报告，能用 4 个 AI 角色互相辩论直到得出最可靠的漏洞分析，能假设驱动地逆向一个你从未见过的二进制文件。它集成了 70+ 安全工具、世界最全的渗透测试字典库、国产最强安全平台的 FuzzTag 引擎，还有一个赛博朋克风格的知识图谱。
+
+---
+
+## 🔥 为什么 Haking Code 与众不同
+
+### 1. `/arena` — 4 链对抗共识引擎（业界首创）
+
+不是一个 AI 回答你，而是 **4 个 AI 角色互相攻击、质疑、验证、综合**，直到收敛到最可靠的答案：
+
+```
+C1 Proposer    → 构建论点，寻找支持证据
+C2 Challenger  → 逻辑攻击，找漏洞和反例
+C3 Verifier    → 实时网络搜索事实查证
+C4 Synthesizer → 综合收敛，标注共识与分歧
+```
+
+基于博弈论的 **CR-EIG 信息效率算子** + **ε_t 可利用度** 驱动收敛，不是固定轮次，而是信号驱动停止。这是你在任何其他工具里找不到的。
+
+### 2. `/recon` — PEV 假设驱动逆向引擎
+
+不是让 AI 帮你跑 strings，而是让 AI **像真正的逆向工程师一样思考**：
+
+```
+提出假设 → 选择工具验证 → 正则判定结果 → 更新假设 → 循环
+```
+
+支持 8 种假设类型（文件类型/壳/编译器/家族/算法/反分析/能力/协议），自动调度 nmap/strings/diec/ghidra 等工具，直到所有假设被验证或预算耗尽。
+
+### 3. 70+ 安全工具，一个 AI 全部调用
+
+从信息收集到后渗透，从密码破解到云安全，全部内置：
+
+| 分类 | 工具 |
+|------|------|
+| 🔍 侦察 | nmap、rustscan、amass、subfinder、httpx、spiderfoot、trufflehog、gitleaks |
+| 🌐 Web攻击 | nuclei、ffuf、nikto、gobuster、feroxbuster、dalfox、xsstrike、wafw00f |
+| 🏢 AD渗透 | bloodhound、impacket、responder、certipy、kerbrute、netexec |
+| 🔑 密码破解 | hashcat、john、hydra、**pdfrip**（Rust多线程PDF破解，R5快15.5x） |
+| 🎯 后渗透/C2 | sliver、havoc、mythic、evil-winrm、ligolo-ng、chisel、peass-ng |
+| ☁️ 云安全 | prowler、scoutsuite、pacu、trivy |
+| 📱 移动安全 | mobsf、frida、objection |
+| 🔬 逆向/取证 | ghidra、radare2、volatility3、binwalk、pspy |
+
+### 4. FuzzTag 引擎（来自国产安全平台 yakit）
+
+参考 76k ⭐ 的 yakit Web Fuzzer，内置 FuzzTag 语法，AI 可以直接生成测试 Payload：
+
+```
+{{int(1-1000)}}          → 生成 1000 个数字
+{{list(admin|root|test)}} → 枚举列表
+{{base64(admin:pass)}}   → Base64 编码
+{{file(wordlist.txt)}}   → 从字典文件读取
+{{randstr(16)}}          → 随机字符串
+```
+
+多个标签自动做**笛卡尔积展开**，一行模板生成数千个 Payload。
+
+### 5. SecLists 字典库深度集成（60k ⭐）
+
+世界最全的渗透测试字典，直接内置：
+
+```
+Passwords/Common-Credentials/10k-most-common.txt
+Passwords/Default-Credentials/default-passwords.csv  ← SSH/FTP/MySQL/Tomcat默认凭据
+Discovery/Web-Content/raft-medium-directories.txt    ← Web目录爆破
+Fuzzing/XSS/                                         ← XSS Payload
+Fuzzing/Databases/SQLi/                              ← SQL注入
+Fuzzing/LFI/LFI-Jhaddix.txt                         ← 本地文件包含
+```
+
+AI 知道所有字典路径，可以直接组合 FuzzTag + SecLists 发起攻击。
+
+### 6. 知识图谱 Wiki（赛博朋克风格）
+
+内置 D3 力导向知识图谱，爬取安全研究文章自动建立节点关系，实时 WebSocket 广播，Markdown 预览。
+
+```bash
+cd wiki && bun run dev  # → http://localhost:7891
+```
+
+### 7. 灵动岛 — AI 工具总控面板
+
+Tauri 2 桌面应用，悬浮在屏幕顶部，一键启动/切换所有 AI coding agent，支持 Windows Terminal 原生分屏。
+
+---
+
+## 🛠️ 今日新增（2026-05-22）
+
+本次更新参考了 GitHub 今日 Trending 的多个顶级项目并深度集成：
+
+| 来源项目 | ⭐ | 集成内容 |
+|---------|-----|---------|
+| [colbymchenry/codegraph](https://github.com/colbymchenry/codegraph) | 12.7k | 代码知识图谱 MCP，减少 35% token 消耗 |
+| [yaklang/yakit](https://github.com/yaklang/yakit) | 7.3k | FuzzTag 引擎移植到 ReverseCliTool |
+| [danielmiessler/SecLists](https://github.com/danielmiessler/SecLists) | 60k | 渗透测试字典库全量集成 |
+| [Z4nzu/hackingtool](https://github.com/Z4nzu/hackingtool) | 76k | 工具列表扩充至 70+ |
+| [mufeedvh/pdfrip](https://github.com/mufeedvh/pdfrip) | 1.4k | PDF密码破解工具安装集成 |
+| [HKUDS/CLI-Anything](https://github.com/HKUDS/CLI-Anything) | 39k | 安全工具 Skill 文件自动生成 |
+| [obra/superpowers](https://github.com/obra/superpowers) | 201k | 14个开发方法论 Skill 集成 |
+| [trimstray/the-book-of-secret-knowledge](https://github.com/trimstray/the-book-of-secret-knowledge) | 222k | 黑客知识大全作为 agent 参考资料 |
+| [multica-ai/andrej-karpathy-skills](https://github.com/multica-ai/andrej-karpathy-skills) | 142k | Karpathy 行为规则集成到 CLAUDE.md |
+
+---
+
+## 🗺️ 下一版本路线图
+
+详见 [NEXT-VERSION.md](./NEXT-VERSION.md)，已规划三大方向：
+
+1. **Hash 锚定编辑**（参考 oh-my-pi）— 用内容 hash 替代行号定位，预计减少 61% token 消耗
+2. **Hindsight 跨 Session 记忆**（参考 oh-my-pi）— `retain/recall/reflect` 三层记忆 API，让 agent 记住每次渗透测试的结论
+3. **多 Agent 分工协作**（参考 multica）— `/mission` 命令，复杂任务自动拆分并行，每个子任务走 `/arena` 质量保证
+
+---
 
 > AI-powered terminal agent for cybersecurity professionals.
 
