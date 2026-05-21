@@ -183,6 +183,26 @@ ReverseCli({action: "pentest", pentestTool: "nuclei", pentestArgs: "-u https://t
 ReverseCli({action: "pentest", pentestTool: "sqlmap", pentestArgs: "-u 'http://target/page?id=1'"})
 ```
 
+### 本地工具安装要求
+
+部分工具需要本地安装并加入 PATH，AI 才能调用：
+
+| 工具 | 安装方式 | 备注 |
+|------|----------|------|
+| IDA Pro | 自行获取安装，将 `idat64.exe` 加入 PATH | 无头模式分析 |
+| Ghidra | https://ghidra-sre.org/ 下载解压 | 需要 JDK 17+ |
+| Detect It Easy (DiE) | https://github.com/horsicq/DIE-engine/releases | 壳检测必备 |
+| UPX | `scoop install upx` 或官网下载 | 脱壳 |
+| nmap | https://nmap.org/download | 端口扫描 |
+| nuclei | `go install github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest` | 漏洞扫描 |
+| sqlmap | `pip install sqlmap` | SQL 注入 |
+| ffuf | `go install github.com/ffuf/ffuf/v2@latest` | 目录爆破 |
+| tshark | 安装 Wireshark 自带 | 抓包分析 |
+| strings | Windows: 安装 Binutils 或 SysInternals Strings | 字符串提取 |
+| Frida | `pip install frida-tools` | 动态脱壳/Hook |
+
+> 💡 没装的工具不影响其他功能，AI 会跳过不可用的工具并使用替代方案。
+
 ---
 
 ## 多 Provider 配置（Recon/Arena）
