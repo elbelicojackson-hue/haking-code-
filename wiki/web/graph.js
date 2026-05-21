@@ -379,3 +379,93 @@ setInterval(() => {
     ws.send(JSON.stringify({ type: 'ping' }));
   }
 }, 25000);
+
+
+// ---------- Chat (AI Q&A) ----------
+
+const chatMessages = document.getElementById('chatMessages');
+const chatInput    = document.getElementById('chatInput');
+const chatSend     = document.getElementById('chatSend');
+let currentAiBubble = null;
+
+function appendChatMsg(cls, html) {
+  const div = document.createElement('div');
+  div.className = 'chat-msg ' + cls;
+  div.innerHTML = html;
+  chatMessages.appendChild(div);
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+  return div;
+}
+
+function sendAsk() {
+  const q = chatInput.value.trim();
+  if (!q) return;
+  if (!ws || ws.readyState !== 1) { toast('not connected', true); return; }
+
+  appendChatMsg('user', escapeHtml(q));
+  chatInput.value = '';
+  currentAiBubble = null;
+
+  ws.send(JSON.stringify({ type: 'ask', question: q }));
+}
+
+chatSend.addEventListener('click', sendAsk);
+chatInput.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendAsk(); }
+});
+
+function handleAskMessage(msg) {
+  switch (msg.type) {
+    case 'ask:sources': {
+      const links = (msg.sources || []).map(s =>
+        s.url ? `<a href="${s.url}" target="_blank">[${escapeHtml(s.title)}]</a>`
+              : `<span>[${escapeHtml(s.title)}]</span>`
+      ).join(' ');
+      if (!currentAiBubble) {
+        currentAiBubble = appendChatMsg('ai', `<div class="sources">${links}</div><span class="ai-text"></span>`);
+      } else {
+        const srcDiv = currentAiBubble.querySelector('.sources');
+        if (srcDiv) srcDiv.innerHTML = links;
+      }
+      break;
+    }
+    case 'ask:text': {
+      if (!currentAiBubble) {
+        currentAiBubble = appendChatMsg('ai', '<span class="ai-text"></span>');
+      }
+      const textEl = currentAiBubble.querySelector('.ai-text');
+      if (textEl) textEl.textContent += msg.text;
+      chatMessages.scrollTop = chatMessages.scrollHeight;
+      break;
+    }
+    case 'ask:expanding':
+      appendChatMsg('expanding', `🔍 搜索中: "${escapeHtml(msg.query)}"...`);
+      break;
+    case 'ask:expanded': {
+      const names = (msg.newNodes || []).map(n => escapeHtml(n.title)).join(', ');
+      appendChatMsg('expanding', `✓ 已爬取: ${names}`);
+      break;
+    }
+    case 'ask:done':
+      currentAiBubble = null;
+      break;
+    case 'ask:error':
+      appendChatMsg('error', '✗ ' + escapeHtml(msg.error || 'unknown error'));
+      currentAiBubble = null;
+      break;
+  }
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// Hook into the existing WS message handler
+const _origHandleServerMessage = handleServerMessage;
+handleServerMessage = function(msg) {
+  if (msg.type && msg.type.startsWith('ask:')) {
+    handleAskMessage(msg);
+    return;
+  }
+  _origHandleServerMessage(msg);
+};

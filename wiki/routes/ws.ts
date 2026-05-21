@@ -15,6 +15,7 @@
 import type { ServerWebSocket } from 'bun'
 import type { GraphDelta, WikiGraph } from '../core/graph.js'
 import type { WikiCrawler } from '../core/crawler.js'
+import { ask } from '../core/chat.js'
 
 export type WsContext = {
   /** Set on each connected ws via ws.data.unsubscribe = ... */
@@ -108,6 +109,26 @@ export async function handleClientMessage(
       const limit = Math.min(100, Number(msg.limit || 20) || 20)
       const hits = graph.searchNodes(q, limit)
       ws.send(JSON.stringify({ type: 'search:result', q, hits }))
+      return
+    }
+
+    case 'ask': {
+      const question = String(msg.question || msg.q || '')
+      if (!question) {
+        ws.send(JSON.stringify({ type: 'error', error: 'ask: question required' }))
+        return
+      }
+      // Stream ChatChunks back to the client as they arrive.
+      try {
+        for await (const chunk of ask({ graph, crawler, question })) {
+          ws.send(JSON.stringify({ type: `ask:${chunk.type}`, ...chunk }))
+        }
+      } catch (err) {
+        ws.send(JSON.stringify({
+          type: 'ask:error',
+          error: err instanceof Error ? err.message : String(err),
+        }))
+      }
       return
     }
 
