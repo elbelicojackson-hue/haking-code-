@@ -4,6 +4,12 @@
 
 专为网络安全研究员打造的终端 AI Agent，集成逆向工程、渗透测试、多模型对抗共识等能力。
 
+## ⚠️ DeepSeek 兼容性修复
+
+本项目完全绕过 Anthropic SDK（`@anthropic-ai/sdk`）的 Zod v4 校验层，使用原生 `fetch` 直连 DeepSeek API。原因：Anthropic SDK 0.80+ 对响应格式有严格的 schema 校验（`_idmap`、`schema._zod` 等），DeepSeek 的兼容 API 不返回这些私有字段，导致运行时崩溃。
+
+**解决方案**：`src/services/api/deepseek-direct.ts` 在 `queryModel` 入口处拦截，不经过 SDK，直接用 fetch 调用 `/v1/messages` 端点，手动构造 `AssistantMessage` 返回给下游消费者。
+
 ## v1.0.0 首次更新内容
 
 - 🔐 **去登录化** — 移除 Anthropic OAuth，直接使用 API Key
