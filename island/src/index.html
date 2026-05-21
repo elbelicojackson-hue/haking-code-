@@ -134,6 +134,28 @@ html, body { background: transparent; overflow: hidden; font-family: 'Consolas',
 .stats span { color: #00fff7; }
 .wiki-btn { margin-left: auto; cursor: pointer; font-size: 14px; opacity: 0.7; transition: opacity 0.15s, transform 0.1s; }
 .wiki-btn:hover { opacity: 1; transform: scale(1.2); }
+.mic-btn { cursor: pointer; font-size: 14px; opacity: 0.7; transition: opacity 0.15s, transform 0.1s; }
+.mic-btn:hover { opacity: 1; transform: scale(1.2); }
+.mic-btn.recording { opacity: 1; animation: mic-pulse 0.6s ease-in-out infinite; }
+@keyframes mic-pulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.3); } }
+
+/* Voice waveform overlay */
+.voice-overlay {
+  position: absolute;
+  inset: 0;
+  border-radius: 16px;
+  background: rgba(10, 10, 20, 0.95);
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+  gap: 8px;
+}
+.voice-overlay.active { display: flex; }
+.voice-overlay canvas { width: 200px; height: 60px; }
+.voice-overlay .voice-hint { color: #888; font-size: 10px; }
+.voice-overlay .voice-status { color: #00fff7; font-size: 11px; }
 
 /* 关闭按钮 */
 .close { position: absolute; top: 8px; right: 10px; color: #555; font-size: 12px; cursor: pointer; z-index: 2; display: none; }
@@ -173,7 +195,13 @@ html, body { background: transparent; overflow: hidden; font-family: 'Consolas',
         <div>📊 <span id="tokens">0</span> tok</div>
         <div>💰 <span id="cost">¥0</span></div>
         <div class="wiki-btn" id="wikiBtn" title="打开 Wiki 知识图谱">📚</div>
+        <div class="mic-btn" id="micBtn" title="按住说话 · 松手发送">🎤</div>
       </div>
+    </div>
+    <div class="voice-overlay" id="voiceOverlay">
+      <canvas id="waveCanvas" width="200" height="60"></canvas>
+      <div class="voice-status" id="voiceStatus">松手发送</div>
+      <div class="voice-hint">按住说话中...</div>
     </div>
   </div>
   <div class="close" id="closeBtn">✕</div>
@@ -196,7 +224,7 @@ const layoutBtns   = [...document.querySelectorAll('.layout-btn')];
 // windows; calling startDragging() from mousedown is the stable path.
 island.addEventListener('mousedown', async (e) => {
   if (e.button !== 0) return;
-  if (e.target.closest('.session, .close, .tool, .layout-btn, .wiki-btn')) return;
+  if (e.target.closest('.session, .close, .tool, .layout-btn, .wiki-btn, .mic-btn')) return;
   try {
     await window.__TAURI__.window.getCurrentWindow().startDragging();
   } catch (err) {
@@ -226,7 +254,7 @@ island.addEventListener('mouseleave', () => {
 
 // Triple-click anywhere → close the process.
 island.addEventListener('click', e => {
-  if (e.target.closest('.session, .close, .tool, .layout-btn, .wiki-btn')) return;
+  if (e.target.closest('.session, .close, .tool, .layout-btn, .wiki-btn, .mic-btn')) return;
   if (e.detail >= 3) {
     window.__TAURI__.window.getCurrentWindow().close();
   }
@@ -386,6 +414,168 @@ window.focusSession = (id) => {
 
 loadTools();
 connect();
+
+// ---------- Voice Input (hold mic → record → release → Groq Whisper → send to Haking Code) ----------
+
+const micBtn = document.getElementById('micBtn');
+const voiceOverlay = document.getElementById('voiceOverlay');
+const waveCanvas = document.getElementById('waveCanvas');
+const voiceStatus = document.getElementById('voiceStatus');
+const waveCtx = waveCanvas.getContext('2d');
+
+let mediaRecorder = null;
+let audioChunks = [];
+let audioContext = null;
+let analyser = null;
+let animFrame = null;
+let mediaStream = null;
+
+function drawWaveform() {
+  if (!analyser) return;
+  const data = new Uint8Array(analyser.frequencyBinCount);
+  analyser.getByteTimeDomainData(data);
+
+  waveCtx.clearRect(0, 0, 200, 60);
+  waveCtx.strokeStyle = '#00fff7';
+  waveCtx.lineWidth = 2;
+  waveCtx.shadowColor = '#00fff7';
+  waveCtx.shadowBlur = 6;
+  waveCtx.beginPath();
+
+  const sliceWidth = 200 / data.length;
+  let x = 0;
+  for (let i = 0; i < data.length; i++) {
+    const v = data[i] / 128.0;
+    const y = (v * 60) / 2;
+    if (i === 0) waveCtx.moveTo(x, y);
+    else waveCtx.lineTo(x, y);
+    x += sliceWidth;
+  }
+  waveCtx.lineTo(200, 30);
+  waveCtx.stroke();
+  animFrame = requestAnimationFrame(drawWaveform);
+}
+
+async function startRecording() {
+  try {
+    mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    audioContext = new AudioContext();
+    const source = audioContext.createMediaStreamSource(mediaStream);
+    analyser = audioContext.createAnalyser();
+    analyser.fftSize = 256;
+    source.connect(analyser);
+
+    mediaRecorder = new MediaRecorder(mediaStream, { mimeType: 'audio/webm' });
+    audioChunks = [];
+    mediaRecorder.ondataavailable = e => { if (e.data.size > 0) audioChunks.push(e.data); };
+    mediaRecorder.start();
+
+    voiceOverlay.classList.add('active');
+    micBtn.classList.add('recording');
+    voiceStatus.textContent = '松手发送';
+    drawWaveform();
+  } catch (err) {
+    voiceStatus.textContent = '麦克风权限被拒绝';
+    console.error('mic error:', err);
+  }
+}
+
+async function stopRecording() {
+  voiceOverlay.classList.remove('active');
+  micBtn.classList.remove('recording');
+  if (animFrame) { cancelAnimationFrame(animFrame); animFrame = null; }
+
+  if (!mediaRecorder || mediaRecorder.state === 'inactive') return;
+
+  return new Promise(resolve => {
+    mediaRecorder.onstop = async () => {
+      // Cleanup
+      mediaStream?.getTracks().forEach(t => t.stop());
+      audioContext?.close();
+      analyser = null;
+
+      if (audioChunks.length === 0) { resolve(); return; }
+
+      const blob = new Blob(audioChunks, { type: 'audio/webm' });
+      voiceStatus.textContent = '转写中...';
+      voiceOverlay.classList.add('active');
+
+      try {
+        const text = await transcribeWithGroq(blob);
+        voiceOverlay.classList.remove('active');
+        if (text && text.trim()) {
+          // Send transcribed text to Haking Code via island WS hub
+          if (ws && ws.readyState === 1) {
+            // The island WS hub doesn't have a "send to terminal" protocol yet,
+            // so we copy to clipboard + show toast (same pattern as wiki inject).
+            await navigator.clipboard.writeText(text.trim());
+            meta.textContent = '🎤 ' + text.trim().slice(0, 30) + (text.length > 30 ? '...' : '');
+            setTimeout(() => { meta.textContent = 'connected'; }, 3000);
+          }
+        }
+      } catch (err) {
+        voiceOverlay.classList.remove('active');
+        console.error('transcribe error:', err);
+        meta.textContent = '✗ 转写失败';
+        setTimeout(() => { meta.textContent = 'connected'; }, 2000);
+      }
+      resolve();
+    };
+    mediaRecorder.stop();
+  });
+}
+
+async function transcribeWithGroq(blob) {
+  const groqKey = await getGroqKey();
+  if (!groqKey) {
+    meta.textContent = '✗ 需要 GROQ_API_KEY';
+    setTimeout(() => { meta.textContent = 'connected'; }, 2000);
+    return '';
+  }
+
+  const formData = new FormData();
+  formData.append('file', blob, 'recording.webm');
+  formData.append('model', 'whisper-large-v3-turbo');
+  formData.append('response_format', 'json');
+
+  const res = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${groqKey}` },
+    body: formData,
+  });
+
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Groq ${res.status}: ${err}`);
+  }
+  const json = await res.json();
+  return json.text || '';
+}
+
+// Get GROQ_API_KEY — try invoke from Tauri (reads env), fallback to prompt
+let cachedGroqKey = null;
+async function getGroqKey() {
+  if (cachedGroqKey) return cachedGroqKey;
+  // Try reading from the island WS state (hub broadcasts env-derived config)
+  // For now, use localStorage as a simple persistence layer.
+  cachedGroqKey = localStorage.getItem('groq_api_key');
+  if (!cachedGroqKey) {
+    cachedGroqKey = prompt('输入 Groq API Key (https://console.groq.com/keys):');
+    if (cachedGroqKey) localStorage.setItem('groq_api_key', cachedGroqKey);
+  }
+  return cachedGroqKey;
+}
+
+// Hold to record, release to send
+micBtn.addEventListener('mousedown', e => {
+  if (e.button !== 0) return;
+  e.preventDefault();
+  startRecording();
+});
+micBtn.addEventListener('mouseup', () => stopRecording());
+micBtn.addEventListener('mouseleave', () => {
+  if (mediaRecorder && mediaRecorder.state === 'recording') stopRecording();
+});
 </script>
 </body>
 </html>
