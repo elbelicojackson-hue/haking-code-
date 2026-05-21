@@ -4,6 +4,102 @@
 
 专为网络安全研究员打造的终端 AI Agent，集成逆向工程、渗透测试、多模型对抗共识等能力。
 
+## 📋 更新日志（v1.1.0 → v1.1.1 hotfix）
+
+> 以下为 v1.0.1 之后的全部 commit 摘要，按时间倒序。
+
+### `669d09b` fix(deepseek): normalize messages before sending to direct route
+
+**根因**：DeepSeek 直连路径拿到的是原始 messages 数组，跳过了 `normalizeMessagesForAPI()` + `ensureToolResultPairing()` 两个关键处理步骤。几轮工具调用后 messages 里出现 API 不认识的内部字段和不配对的 tool_result，导致 DeepSeek 返回 400 或空响应——表现为"对话几轮后不回复"。
+
+**修复**：`claude.ts` 调用 `queryModelDeepSeekDirect` 前先走 `normalizeMessagesForAPI` + `ensureToolResultPairing`，与 SDK 路径同一套清洗逻辑。
+
+---
+
+### `c5780f9` fix(deepseek): don't inject cache_control on tool_result blocks + surface empty responses
+
+1. **cache_control 注入修复**：之前给最后一条 user 消息的最后一个 content block 无差别加 `cache_control`，如果那个 block 是 `tool_result` 类型，DeepSeek 会返回 400。现在只给 `type: 'text'` 的 block 加。
+2. **空响应不再静默**：如果 DeepSeek 返回 0 content blocks + 0 output tokens，显示 `[DeepSeek returned empty response]` 并附带诊断提示（上下文过长 / tool_result 格式错误），而不是一条空消息。
+
+---
+
+### `8667548` fix: guard msg.message?.content access with optional chaining
+
+`src/components/Messages.tsx` 两处 `msg.message?.content[0]` → `msg.message?.content?.[0]`。system / attachment 等消息没有 `.message.content` 字段，直接 `[0]` 会 TypeError crash。
+
+---
+
+### `8d8882a` docs: add Wiki section to README — emphasize Firecrawl API Key requirement
+
+README 新增 "📚 Haking Wiki" 段落，强调爬虫功能**必须自行配置 Firecrawl API Key**（获取地址、三种配置方式、免费额度说明）。
+
+---
+
+### `ec54de7` feat(wiki): P0 knowledge graph + Web UI (v1.0.0)
+
+全新 `wiki/` 目录（9 文件，1512 行）：
+
+| 模块 | 文件 | 功能 |
+|------|------|------|
+| 数据层 | `core/graph.ts` | WikiGraph 类：节点/边 CRUD、graph.json 持久化（单写队列防并发）、subscribe/emit delta、子串搜索 |
+| 爬取层 | `core/crawler.ts` | Firecrawl scrape → Turndown 回退 → `.haking/wiki/pages/{id}.md`，自动 upsert page 节点 |
+| HTTP | `server.ts` | Bun.serve port 7891，静态文件 + REST + WS + markdown 页面服务 |
+| REST | `routes/api.ts` | 8 个 endpoint（nodes/edges CRUD + search + snapshot） |
+| WebSocket | `routes/ws.ts` | 连接即推 snapshot，后续 delta 实时广播；客户端可 crawl/search/ping |
+| 前端 | `web/index.html` | 三栏布局（工具栏 / D3 画布 / Markdown 面板） |
+| 可视化 | `web/graph.js` | D3 force-directed 图，增量 delta 更新，搜索高亮，节点选中 → 右侧 markdown 预览 |
+| 样式 | `web/style.css` | 赛博朋克暗色主题（与灵动岛同色系 #00fff7 / #a855f7 / #ff2d95） |
+
+启动：`cd wiki && bun run dev` → http://localhost:7891
+
+---
+
+### `55a5918` feat(island): tools launcher + wt.exe split-pane + drag fix (v1.1.0)
+
+灵动岛 Tauri 2 项目首次入库（`island/` 目录，10 文件，768 行）：
+
+- **拖拽修复**：补 `capabilities/default.json`（6 条 window 权限）+ `withGlobalTauri: true` + mousedown 显式 `startDragging()`
+- **三连击关闭**：`MouseEvent.detail >= 3` → `close()`
+- **CLI 工具启动器**：6 个默认工具（Haking / OpenCode / Codex / Claude / Aider / Gemini），每个一种品牌色圆球，配置存 `%APPDATA%\haking-island\tools.json`
+- **wt.exe 分屏**：Shift+多选 ≥2 工具 → 点 Layout 按钮 → 一行 `wt new-tab ... ; split-pane ...` 原生分屏（4 种 layout：左右 / 上下 / 田字 / 多 Tab）
+- **无 wt.exe 回退**：每工具独立 cmd 窗口
+
+---
+
+### `4969433` feat(deepseek): full overhaul + multi-instance island hub (v1.1.0)
+
+**DeepSeek 直连路径完全重写**（`src/services/api/deepseek-direct.ts`，672 行）：
+
+| 项 | 之前 | 现在 |
+|---|---|---|
+| 流式输出 | `await res.json()` 阻塞 | SSE `stream:true`，emit Anthropic 标准事件 |
+| 工具 schema | 空 `{type:'object', properties:{}}` | `zodToJsonSchema(tool.inputSchema)` 真实 schema |
+| 工具数量 | `slice(0, 20)` 静默丢 | 全部传入 |
+| max_tokens | 硬编码 8192 | 64K 默认 / 384K 上限 |
+| temperature | 没传 | pass-through |
+| 思考模式 | 不请求 | `thinking:{type:'enabled'}` plumbing |
+| cache_control | 无 | system 尾 + user 尾 + tool 列表尾 |
+| 重试 | 无 | 429/5xx 指数退避 3× |
+| 错误分类 | 一行文本 | 解析 `{error:{type,message}}`，401/429/500 各自提示 |
+| tool_use | 解析但不 yield | 完整 yield |
+
+**上下文 / 价格 / 容量**：
+- DeepSeek V4 上下文 200K → 1M
+- 输出上限 default 64K / upper 384K
+- `modelCost.ts` 加 DeepSeek 三档 USD 价表，`unknown_model_cost` 告警熄灭
+
+**ModelStatsPanel 增强**：
+- `DEEPSEEK_PRO_FULL_PRICE=1` 切换 pro 原价/2.5 折
+- 累计行加 USD 等价
+
+**灵动岛多实例聚合**（`src/services/island.ts`）：
+- 每实例写 `~/.haking-island/sessions/{pid}.json`
+- 抢 port 7890 当 hub → 读全部 session 文件聚合广播
+- 非 hub 30s 重试抢占；hub 死后无缝接管
+- 岛上 sessions 列表显示所有活实例
+
+---
+
 ## ⚠️ DeepSeek 兼容性修复
 
 本项目完全绕过 Anthropic SDK（`@anthropic-ai/sdk`）的 Zod v4 校验层，使用原生 `fetch` 直连 DeepSeek API。原因：Anthropic SDK 0.80+ 对响应格式有严格的 schema 校验（`_idmap`、`schema._zod` 等），DeepSeek 的兼容 API 不返回这些私有字段，导致运行时崩溃。
