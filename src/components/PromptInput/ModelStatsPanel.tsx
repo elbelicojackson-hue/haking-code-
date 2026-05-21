@@ -52,6 +52,17 @@ const PRO_PRICING_FULL: DeepSeekPricing = {
   output: 24,
 };
 
+// DEEPSEEK_PRO_FULL_PRICE=1 切换 pro 列到原价（活动结束后用）。
+// 同时 src/utils/modelCost.ts 的 USD 计价也读这个环境变量，保持一致。
+function getProPricing(): DeepSeekPricing {
+  return process.env.DEEPSEEK_PRO_FULL_PRICE === '1'
+    ? PRO_PRICING_FULL
+    : PRO_PRICING_DISCOUNT;
+}
+
+// CNY → USD 汇率（与 modelCost.ts 同步，1 USD ≈ 7.2 CNY）
+const CNY_PER_USD = 7.2;
+
 type ModelKind = 'flash' | 'pro';
 
 type Bucket = {
@@ -131,7 +142,7 @@ function ModelStatsPanelInner(): React.ReactNode {
     outputTokens: 0,
     cacheReadInputTokens: 0,
     cacheCreationInputTokens: 0,
-    pricing: PRO_PRICING_DISCOUNT,
+    pricing: getProPricing(),
   };
 
   for (const [modelName, u] of Object.entries(usage)) {
@@ -183,8 +194,13 @@ function ModelStatsPanelInner(): React.ReactNode {
           累计 {formatCNY(total)}
         </Text>
         <Text dimColor>
-          · pro 当前 2.5 折，原价 {PRO_PRICING_FULL.cacheMissInput}/
-          {PRO_PRICING_FULL.output} ¥/Mtok
+          (≈ ${(total / CNY_PER_USD).toFixed(total < 1 ? 4 : 2)})
+        </Text>
+        <Text dimColor>
+          ·{' '}
+          {process.env.DEEPSEEK_PRO_FULL_PRICE === '1'
+            ? `pro 原价 ${PRO_PRICING_FULL.cacheMissInput}/${PRO_PRICING_FULL.output} ¥/Mtok`
+            : `pro 当前 2.5 折，原价 ${PRO_PRICING_FULL.cacheMissInput}/${PRO_PRICING_FULL.output} ¥/Mtok`}
         </Text>
       </Box>
     </Box>

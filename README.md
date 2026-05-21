@@ -10,33 +10,111 @@
 
 **解决方案**：`src/services/api/deepseek-direct.ts` 在 `queryModel` 入口处拦截，不经过 SDK，直接用 fetch 调用 `/v1/messages` 端点，手动构造 `AssistantMessage` 返回给下游消费者。
 
-## 💰 实时模型计费面板（v1.0.1）
+## 🚀 v1.1.0 — DeepSeek 全面优化 + 灵动岛工具启动器
 
-输入框正下方常驻的双模型 token / 人民币花费面板（`src/components/PromptInput/ModelStatsPanel.tsx`）：
+本次发布把 DeepSeek 路径从"能跑"升级到"能跑得好"，并把灵动岛升级成 AI CLI 工具的总控面板。
+
+### DeepSeek 核心优化（`src/services/api/deepseek-direct.ts` 重写）
+
+| 改动 | 之前 | 现在 |
+|------|------|------|
+| **流式输出** | `await res.json()`（阻塞，整段返回） | SSE `stream: true`，emit Anthropic 标准事件 (`message_start` / `content_block_delta` / `message_stop`)，token 级渐进显示 |
+| **工具 input_schema** | 全部硬编码空 schema `{type:'object', properties:{}}` | `zodToJsonSchema(tool.inputSchema)` 真实 schema |
+| **工具数量** | 静默 `slice(0, 20)` 砍掉 21 号之后 | 全部传入 |
+| **`max_tokens`** | 硬编码 8192 | `getModelMaxOutputTokens()` + `CLAUDE_CODE_MAX_OUTPUT_TOKENS` env 覆盖；DeepSeek V4 默认 64K（最大支持 384K） |
+| **temperature** | 没传 | 从 `options.temperature` pass-through |
+| **思考模式** | parse 但从不请求 | `thinking: {type:'enabled', budget_tokens}` plumbing 通了 |
+| **`cache_control`** | 完全没用 | 系统块尾、最后 user 消息、tool 列表尾全部标 `ephemeral`，DeepSeek 缓存命中输入价低 50× |
+| **重试** | 失败一次就死 | 429 / 5xx / 网络错误 → 指数退避 800/1600/3200ms，最多 3 次 |
+| **错误分类** | 一行 `${status}: ${text}` | 解析 `{error:{type,message}}`，401/429/500 各自带提示与下一步操作 |
+| **`tool_use` 块** | 解析了但**从来没 yield**（Agent 工具调用静默失败） | 完整 yield + `cache_creation_input_tokens` 计入 |
+
+### 上下文 / 价格 / 容量（`src/utils/context.ts` + `modelCost.ts`）
+
+- DeepSeek V4 上下文窗 `200K → 1M`（`modelSupports1M` 加 deepseek-v4 匹配）
+- DeepSeek V4 输出上限 `default 64K / upper 384K`
+- `MODEL_COSTS` 加 DeepSeek 三档专属表（按官方人民币价折 USD），`getModelCosts` short-circuit 不再走 Claude 错档
+- `tengu_unknown_model_cost` 告警熄灭，StatusLine "costs may be inaccurate" 不再亮
+
+### 实时计费面板（`src/components/PromptInput/ModelStatsPanel.tsx`）
+
+输入框正下方常驻：
 
 ```
 deepseek-v4-flash   in 12.3k · out 4.5k · cache↓ 8.0k · cache↑ 0   ¥0.0123 (1/2 ¥/Mtok)
 deepseek-v4-pro     in 0     · out 0    · cache↓ 0    · cache↑ 0   ¥0      (3/6 ¥/Mtok)
-累计 ¥0.0123 · pro 当前 2.5 折，原价 12/24 ¥/Mtok
+累计 ¥0.0123 (≈ $0.0017) · pro 当前 2.5 折，原价 12/24 ¥/Mtok
 ```
 
-- 按 DeepSeek **官方人民币单价**直接计算 CNY，不复用 cost-tracker 那套以美元计价、对 DeepSeek 完全不准的旧表
-- flash 行（绿）/ pro 行（橙）/ 累计行（黄），各列单独 padding 对齐
-- 模型名按 `flash` / `pro` 子串归桶，未来 `deepseek-v4-pro-20260101` 之类变体可自动归位
-- 仅当 `ANTHROPIC_BASE_URL` 含 `deepseek` 时显示，避免给真 Claude/OpenAI 用户看到错误的人民币价
+- 直接按 DeepSeek 官方人民币单价算 CNY，1 秒轮询 `STATE.modelUsage`
+- 累计行带 USD 等价（汇率 7.2）
+- 设 `DEEPSEEK_PRO_FULL_PRICE=1` → 切到 pro 原价档（pricing 同步进 modelCost.ts）
+- 仅 `ANTHROPIC_BASE_URL` 含 `deepseek` 时显示，其他后端隐藏避免误导
 - 终端宽度 < 70 列自动隐藏
 
-> ⚠️ **配套修复**：`src/services/api/deepseek-direct.ts` 之前直连路径**完全没有把 token 用量写进 `STATE.modelUsage`**（硬编码 `costUSD: 0`，跳过 `addToTotalSessionCost`），导致 `/cost`、StatusLine、ModelStatsPanel 全部读到空数据。v1.0.1 在响应解析后补上了 `addToTotalSessionCost(0, json.usage, model)`——传 0 是为了避免 `modelCost.ts` 里仍套用 Claude USD 单价的错误价污染 `totalCostUSD`，CNY 由面板独立结算。
+### 灵动岛多实例聚合（`src/services/island.ts`）
 
-### DeepSeek V4 系列单价
+之前两个 Haking Code 同时跑，第二个抢不到 port 7890 就**完全隐形**，岛上只显示一个 session。现在改成文件聚合 + 端口领导选举：
 
-| 模型 | 缓存命中输入 | 缓存未命中输入 | 输出 |
-|------|--------------|----------------|------|
-| `deepseek-v4-flash` | ¥0.02 / Mtok | ¥1 / Mtok | ¥2 / Mtok |
-| `deepseek-v4-pro`（2.5 折） | ¥0.025 / Mtok | ¥3 / Mtok | ¥6 / Mtok |
-| `deepseek-v4-pro`（原价） | ¥0.1 / Mtok | ¥12 / Mtok | ¥24 / Mtok |
+```
+每个 Haking Code 实例
+  ├─ 写 ~/.haking-island/sessions/{pid}.json，每 1.5s 刷新
+  ├─ 抢 port 7890
+  │   ├─ 成功 → 当 hub：每秒读全部 session 文件聚合广播
+  │   └─ 失败 → 仅写文件（30s 重试一次抢占）
+  └─ exit/SIGINT/SIGTERM → 删自己的文件
 
-> 上下文 1M / 输出最大 384K，支持思考模式、Tool Calls、Json Output、对话前缀续写（Beta），FIM 补全仅非思考模式。
+Hub 读文件时 mtime > 8s 视为死亡 → unlink
+第一个 hub 死 → 30s 内第二个无缝接管
+```
+
+岛上 sessions 列表会列出所有活实例，每条带 cwd 区分（`Haking Code (miserad)` / `Haking Code (myproject)`），底部 stats 是聚合值。
+
+## 🏝️ 灵动岛 v1.1.0（`island/`）
+
+### 拖拽修复（v1.0 完全拖不动）
+
+根因两个：
+1. `src-tauri/capabilities/` 目录根本没建，Tauri 2 严格安全模型默认拒绝 `core:window:allow-start-dragging`
+2. `tauri.conf.json` 没设 `withGlobalTauri: true`，v2 默认 `false` 导致 `window.__TAURI__` 全局对象不存在，HTML 第一行 `const { invoke } = window.__TAURI__.core` 直接 TypeError，整个 script 静默挂掉
+
+修复：建 `capabilities/default.json` 释放 6 条 window 权限；conf 加 `withGlobalTauri: true`；HTML 用 `mousedown → startDragging()` 显式拖拽（比 `data-tauri-drag-region` 在 transparent + decorations:false 组合下更稳）。
+
+### 三连击关闭
+
+`MouseEvent.detail >= 3` 触发 `getCurrentWindow().close()`，跟 OS 双击间隔同步。
+
+### CLI 工具启动器 + wt.exe 分屏
+
+展开后多了两个区：
+
+```
+┌──────────────────────────────────┐
+│ ▾ Sessions                       │
+│   ● Haking Code (miserad)        │  ← 多实例 each cwd
+│   ● Haking Code (myproject)      │
+├──────────────────────────────────┤
+│ ▾ TOOLS  click 启动 · shift 多选 │
+│   🟦 Haking  🟧 OpenCode         │
+│   🟢 Codex   🟫 Claude           │
+│   🩷 Aider   🟦 Gemini           │
+├──────────────────────────────────┤
+│ ▾ LAYOUT                         │
+│   [▮▮ 左右] [≡ 上下] [⊞ 田字] [▤ Tab]│
+└──────────────────────────────────┘
+```
+
+每个工具一个品牌色小圆球。配置文件 `%APPDATA%\haking-island\tools.json`，首次启动自动写默认 6 工具，可自由编辑加自家 CLI / 命令参数 / cwd。
+
+**单击** → `wt.exe new-tab` 启动单个；**Shift+多选 ≥2 个 + 点 layout 按钮** → 一行 `wt new-tab ... ; split-pane -V ... ; split-pane -H ...` 把它们 split-pane 到同一个 Windows Terminal 窗口，原生分屏。
+
+四种 layout：
+- **左右**：垂直 split-pane 链
+- **上下**：水平 split-pane 链
+- **田字**：4 工具时正好 2×2 quadrant，别的数量退化成左右
+- **多 Tab**：每个工具一个 wt tab，不分屏
+
+没装 wt.exe 的老 Windows → 回退到每工具一个独立 cmd 窗口。
 
 ## v1.0.0 首次更新内容
 

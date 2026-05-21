@@ -46,6 +46,12 @@ export function modelSupports1M(model: string): boolean {
     return false
   }
   const canonical = getCanonicalName(model)
+  // DeepSeek V4 family — pro/flash both ship 1M context as standard.
+  // Match by raw model name too, since canonicalization may strip
+  // version suffixes that flash/pro carry as identifiers.
+  if (/deepseek[-_]?v4/i.test(model) || /deepseek[-_]?v4/i.test(canonical)) {
+    return true
+  }
   return canonical.includes('claude-sonnet-4') || canonical.includes('opus-4-6')
 }
 
@@ -69,6 +75,13 @@ export function getContextWindowForModel(
 
   // [1m] suffix — explicit client-side opt-in, respected over all detection
   if (has1mContext(model)) {
+    return 1_000_000
+  }
+
+  // DeepSeek V4 family ships with 1M context window unconditionally —
+  // capping at the Claude default 200K hides 80% of the usable context
+  // and triggers premature auto-compact at 20% utilization.
+  if (modelSupports1M(model) && /deepseek[-_]?v4/i.test(model)) {
     return 1_000_000
   }
 
@@ -171,7 +184,13 @@ export function getModelMaxOutputTokens(model: string): {
 
   const m = getCanonicalName(model)
 
-  if (m.includes('opus-4-6')) {
+  // DeepSeek V4 family — flash/pro both support up to 384K output. Use
+  // 64K as a sensible default (matches DEEPSEEK_DEFAULT_MAX_TOKENS in
+  // deepseek-direct.ts) so long generations aren't truncated at 8K.
+  if (/deepseek[-_]?v4/i.test(model) || /deepseek[-_]?v4/i.test(m)) {
+    defaultTokens = 64_000
+    upperLimit = 384_000
+  } else if (m.includes('opus-4-6')) {
     defaultTokens = 64_000
     upperLimit = 128_000
   } else if (m.includes('sonnet-4-6')) {

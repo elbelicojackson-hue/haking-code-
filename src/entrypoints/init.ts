@@ -71,6 +71,9 @@ export const init = memoize(async (): Promise<void> => {
   const { applyHakingConfig } = await import('../utils/hakingConfig.js')
   applyHakingConfig()
 
+  // Start island WebSocket server (for floating island app)
+  import('../services/island.js').then(m => m.startIslandServer()).catch(() => {})
+
   // Validate configs are valid and enable configuration system
   try {
     const configsStart = Date.now()

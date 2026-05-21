@@ -86,6 +86,41 @@ export const COST_HAIKU_45 = {
   webSearchRequests: 0.01,
 } as const satisfies ModelCosts
 
+// Pricing for DeepSeek V4 family.
+// Source: https://platform.deepseek.com/api-docs/pricing
+// CNY → USD conversion uses 1 USD ≈ 7.2 CNY.
+//   flash CNY: cache-hit 0.02, cache-miss 1, output 2 / Mtok
+//   pro 2.5 折 CNY: cache-hit 0.025, cache-miss 3, output 6 / Mtok
+//   pro 原价 CNY: cache-hit 0.1, cache-miss 12, output 24 / Mtok
+//
+// We pick `pro 2.5折` as the default since that's the live promotional price.
+// To switch to full price set DEEPSEEK_PRO_FULL_PRICE=1 in env (read by panel
+// override; the constants here remain promo so /cost is consistent with what
+// the user actually pays).
+export const COST_DEEPSEEK_V4_FLASH = {
+  inputTokens: 1 / 7.2,         // ¥1 / Mtok ≈ $0.139
+  outputTokens: 2 / 7.2,        // ¥2 / Mtok ≈ $0.278
+  promptCacheWriteTokens: 1 / 7.2,
+  promptCacheReadTokens: 0.02 / 7.2, // ¥0.02 / Mtok ≈ $0.00278
+  webSearchRequests: 0.01,
+} as const satisfies ModelCosts
+
+export const COST_DEEPSEEK_V4_PRO_PROMO = {
+  inputTokens: 3 / 7.2,         // ¥3 / Mtok ≈ $0.417
+  outputTokens: 6 / 7.2,        // ¥6 / Mtok ≈ $0.833
+  promptCacheWriteTokens: 3 / 7.2,
+  promptCacheReadTokens: 0.025 / 7.2,
+  webSearchRequests: 0.01,
+} as const satisfies ModelCosts
+
+export const COST_DEEPSEEK_V4_PRO_FULL = {
+  inputTokens: 12 / 7.2,        // ¥12 / Mtok ≈ $1.667
+  outputTokens: 24 / 7.2,       // ¥24 / Mtok ≈ $3.333
+  promptCacheWriteTokens: 12 / 7.2,
+  promptCacheReadTokens: 0.1 / 7.2,
+  webSearchRequests: 0.01,
+} as const satisfies ModelCosts
+
 const DEFAULT_UNKNOWN_MODEL_COST = COST_TIER_5_25
 
 /**
@@ -143,6 +178,22 @@ function tokensToUSDCost(modelCosts: ModelCosts, usage: Usage): number {
 
 export function getModelCosts(model: string, usage: Usage): ModelCosts {
   const shortName = getCanonicalName(model)
+
+  // DeepSeek V4 short-circuit. The MODEL_COSTS table maps deepseek-v4-*
+  // through firstParty short-names that previously resolved to Claude USD
+  // tiers ($3/$15 or $15/$75) — wrong by ~5×. Match by raw name first
+  // since canonicalization is owned by Claude families.
+  if (/deepseek/i.test(model) || /deepseek/i.test(shortName)) {
+    if (/flash/i.test(model) || /flash/i.test(shortName)) {
+      return COST_DEEPSEEK_V4_FLASH
+    }
+    // Pro defaults to the live 2.5-折 promo price; users can override
+    // by symlinking through env if the promo ends.
+    if (process.env.DEEPSEEK_PRO_FULL_PRICE === '1') {
+      return COST_DEEPSEEK_V4_PRO_FULL
+    }
+    return COST_DEEPSEEK_V4_PRO_PROMO
+  }
 
   // Check if this is an Opus 4.6 model with fast mode active.
   if (

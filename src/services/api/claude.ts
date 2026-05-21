@@ -1046,7 +1046,7 @@ async function* queryModel(
   // DeepSeek direct route — completely bypass Anthropic SDK
   const { useDirectRoute, queryModelDeepSeekDirect } = await import('./deepseek-direct.js')
   if (useDirectRoute()) {
-    yield* queryModelDeepSeekDirect(messages, systemPrompt, tools, signal, options)
+    yield* queryModelDeepSeekDirect(messages, systemPrompt, thinkingConfig, tools, signal, options)
     return
   }
   // Check cheap conditions first — the off-switch await blocks on GrowthBook
