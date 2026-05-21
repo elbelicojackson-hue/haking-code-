@@ -456,74 +456,7 @@ function drawWaveform() {
   animFrame = requestAnimationFrame(drawWaveform);
 }
 
-async function startRecording() {
-  try {
-    mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    audioContext = new AudioContext();
-    const source = audioContext.createMediaStreamSource(mediaStream);
-    analyser = audioContext.createAnalyser();
-    analyser.fftSize = 256;
-    source.connect(analyser);
-
-    mediaRecorder = new MediaRecorder(mediaStream, { mimeType: 'audio/webm' });
-    audioChunks = [];
-    mediaRecorder.ondataavailable = e => { if (e.data.size > 0) audioChunks.push(e.data); };
-    mediaRecorder.start();
-
-    voiceOverlay.classList.add('active');
-    micBtn.classList.add('recording');
-    voiceStatus.textContent = '松手发送';
-    drawWaveform();
-  } catch (err) {
-    voiceStatus.textContent = '麦克风权限被拒绝';
-    console.error('mic error:', err);
-  }
-}
-
-async function stopRecording() {
-  voiceOverlay.classList.remove('active');
-  micBtn.classList.remove('recording');
-  if (animFrame) { cancelAnimationFrame(animFrame); animFrame = null; }
-
-  if (!mediaRecorder || mediaRecorder.state === 'inactive') return;
-
-  return new Promise(resolve => {
-    mediaRecorder.onstop = async () => {
-      // Cleanup
-      mediaStream?.getTracks().forEach(t => t.stop());
-      audioContext?.close();
-      analyser = null;
-
-      if (audioChunks.length === 0) { resolve(); return; }
-
-      const blob = new Blob(audioChunks, { type: 'audio/webm' });
-      voiceStatus.textContent = '转写中...';
-      voiceOverlay.classList.add('active');
-
-      try {
-        const text = await transcribeWithGroq(blob);
-        voiceOverlay.classList.remove('active');
-        if (text && text.trim()) {
-          // Send transcribed text to Haking Code via island WS hub
-          if (ws && ws.readyState === 1) {
-            // The island WS hub doesn't have a "send to terminal" protocol yet,
-            // so we copy to clipboard + show toast (same pattern as wiki inject).
-            await navigator.clipboard.writeText(text.trim());
-            meta.textContent = '🎤 ' + text.trim().slice(0, 30) + (text.length > 30 ? '...' : '');
-            setTimeout(() => { meta.textContent = 'connected'; }, 3000);
-          }
-        }
-      } catch (err) {
-        voiceOverlay.classList.remove('active');
-        console.error('transcribe error:', err);
-        meta.textContent = '✗ 转写失败';
-        setTimeout(() => { meta.textContent = 'connected'; }, 2000);
-      }
-      resolve();
-    };
-    mediaRecorder.stop();
-  });
-}
+// Voice recording functions are defined below after SpeechRecognition detection
 
 async function transcribeWithGroq(blob) {
   const groqKey = await getGroqKey();
@@ -567,6 +500,130 @@ async function getGroqKey() {
 }
 
 // Hold to record, release to send
+// Strategy: prefer native Web Speech API (local, free, realtime).
+// Fallback to Groq Whisper if SpeechRecognition unavailable.
+const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+let useNativeSpeech = !!SpeechRecognition;
+let recognition = null;
+let nativeResult = '';
+
+if (useNativeSpeech) {
+  recognition = new SpeechRecognition();
+  recognition.continuous = true;
+  recognition.interimResults = true;
+  recognition.lang = 'zh-CN'; // 默认中文，也能识别英文混合
+  recognition.onresult = (event) => {
+    let transcript = '';
+    for (let i = 0; i < event.results.length; i++) {
+      transcript += event.results[i][0].transcript;
+    }
+    nativeResult = transcript;
+    voiceStatus.textContent = transcript.slice(-30) || '听到了...';
+  };
+  recognition.onerror = (e) => {
+    if (e.error === 'not-allowed') {
+      voiceStatus.textContent = '麦克风权限被拒绝';
+    }
+  };
+}
+
+async function startRecording() {
+  nativeResult = '';
+  voiceOverlay.classList.add('active');
+  micBtn.classList.add('recording');
+  voiceStatus.textContent = '听到了...';
+
+  if (useNativeSpeech) {
+    // Native: start recognition + waveform visualization
+    try {
+      mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      audioContext = new AudioContext();
+      const source = audioContext.createMediaStreamSource(mediaStream);
+      analyser = audioContext.createAnalyser();
+      analyser.fftSize = 256;
+      source.connect(analyser);
+      drawWaveform();
+      recognition.start();
+    } catch (err) {
+      voiceStatus.textContent = '麦克风错误';
+      console.error(err);
+    }
+  } else {
+    // Fallback: Groq Whisper (record blob)
+    try {
+      mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      audioContext = new AudioContext();
+      const source = audioContext.createMediaStreamSource(mediaStream);
+      analyser = audioContext.createAnalyser();
+      analyser.fftSize = 256;
+      source.connect(analyser);
+
+      mediaRecorder = new MediaRecorder(mediaStream, { mimeType: 'audio/webm' });
+      audioChunks = [];
+      mediaRecorder.ondataavailable = e => { if (e.data.size > 0) audioChunks.push(e.data); };
+      mediaRecorder.start();
+      drawWaveform();
+    } catch (err) {
+      voiceStatus.textContent = '麦克风权限被拒绝';
+      console.error('mic error:', err);
+    }
+  }
+}
+
+async function stopRecording() {
+  voiceOverlay.classList.remove('active');
+  micBtn.classList.remove('recording');
+  if (animFrame) { cancelAnimationFrame(animFrame); animFrame = null; }
+
+  if (useNativeSpeech) {
+    recognition.stop();
+    mediaStream?.getTracks().forEach(t => t.stop());
+    audioContext?.close();
+    analyser = null;
+
+    if (nativeResult.trim()) {
+      await navigator.clipboard.writeText(nativeResult.trim());
+      meta.textContent = '🎤 ' + nativeResult.trim().slice(0, 30) + (nativeResult.length > 30 ? '...' : '');
+      setTimeout(() => { meta.textContent = 'connected'; }, 3000);
+    }
+    return;
+  }
+
+  // Groq fallback path
+  if (!mediaRecorder || mediaRecorder.state === 'inactive') return;
+
+  return new Promise(resolve => {
+    mediaRecorder.onstop = async () => {
+      mediaStream?.getTracks().forEach(t => t.stop());
+      audioContext?.close();
+      analyser = null;
+
+      if (audioChunks.length === 0) { resolve(); return; }
+
+      const blob = new Blob(audioChunks, { type: 'audio/webm' });
+      voiceStatus.textContent = '转写中...';
+      voiceOverlay.classList.add('active');
+
+      try {
+        const text = await transcribeWithGroq(blob);
+        voiceOverlay.classList.remove('active');
+        if (text && text.trim()) {
+          await navigator.clipboard.writeText(text.trim());
+          meta.textContent = '🎤 ' + text.trim().slice(0, 30) + (text.length > 30 ? '...' : '');
+          setTimeout(() => { meta.textContent = 'connected'; }, 3000);
+        }
+      } catch (err) {
+        voiceOverlay.classList.remove('active');
+        console.error('transcribe error:', err);
+        meta.textContent = '✗ 转写失败';
+        setTimeout(() => { meta.textContent = 'connected'; }, 2000);
+      }
+      resolve();
+    };
+    mediaRecorder.stop();
+  });
+}
+
 micBtn.addEventListener('mousedown', e => {
   if (e.button !== 0) return;
   e.preventDefault();
@@ -574,7 +631,7 @@ micBtn.addEventListener('mousedown', e => {
 });
 micBtn.addEventListener('mouseup', () => stopRecording());
 micBtn.addEventListener('mouseleave', () => {
-  if (mediaRecorder && mediaRecorder.state === 'recording') stopRecording();
+  if (micBtn.classList.contains('recording')) stopRecording();
 });
 </script>
 </body>
