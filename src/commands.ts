@@ -49,6 +49,7 @@ import recon from './algorithms/ccb-pev/index.js'
 import setup from './commands/setup/index.js'
 import arena from './commands/arena/index.js'
 import wiki from './commands/wiki/index.js'
+import island from './commands/island/index.js'
 /* eslint-disable @typescript-eslint/no-require-imports */
 const agentsPlatform =
   process.env.USER_TYPE === 'ant'
@@ -309,6 +310,7 @@ const COMMANDS = memoize((): Command[] => [
   setup,
   arena,
   wiki,
+  island,
   agents,
   branch,
   btw,
