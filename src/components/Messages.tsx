@@ -154,7 +154,7 @@ export function filterForBriefTool<
     // hook timing) that defeats the point of brief mode. Still visible in
     // transcript mode (ctrl+o) which bypasses this filter.
     if (msg.type === 'system') return msg.subtype !== 'api_metrics'
-    const block = msg.message?.content[0]
+    const block = msg.message?.content?.[0]
     if (msg.type === 'assistant') {
       // API error messages (auth failures, rate limits, etc.) must stay visible
       if (msg.isApiErrorMessage) return true
@@ -221,7 +221,7 @@ export function dropTextInBriefTurns<
   let turn = 0
   for (let i = 0; i < messages.length; i++) {
     const msg = messages[i]!
-    const block = msg.message?.content[0]
+    const block = msg.message?.content?.[0]
     if (msg.type === 'user' && block?.type !== 'tool_result' && !msg.isMeta) {
       turn++
       continue
