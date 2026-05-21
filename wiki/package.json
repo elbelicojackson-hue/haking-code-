@@ -1,0 +1,14 @@
+{
+  "name": "haking-wiki",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Haking Wiki — knowledge graph + Web UI for security research notes",
+  "scripts": {
+    "dev": "bun --watch server.ts",
+    "start": "bun server.ts"
+  },
+  "engines": {
+    "bun": ">=1.2.0"
+  }
+}
