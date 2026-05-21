@@ -10,6 +10,34 @@
 
 **解决方案**：`src/services/api/deepseek-direct.ts` 在 `queryModel` 入口处拦截，不经过 SDK，直接用 fetch 调用 `/v1/messages` 端点，手动构造 `AssistantMessage` 返回给下游消费者。
 
+## 💰 实时模型计费面板（v1.0.1）
+
+输入框正下方常驻的双模型 token / 人民币花费面板（`src/components/PromptInput/ModelStatsPanel.tsx`）：
+
+```
+deepseek-v4-flash   in 12.3k · out 4.5k · cache↓ 8.0k · cache↑ 0   ¥0.0123 (1/2 ¥/Mtok)
+deepseek-v4-pro     in 0     · out 0    · cache↓ 0    · cache↑ 0   ¥0      (3/6 ¥/Mtok)
+累计 ¥0.0123 · pro 当前 2.5 折，原价 12/24 ¥/Mtok
+```
+
+- 按 DeepSeek **官方人民币单价**直接计算 CNY，不复用 cost-tracker 那套以美元计价、对 DeepSeek 完全不准的旧表
+- flash 行（绿）/ pro 行（橙）/ 累计行（黄），各列单独 padding 对齐
+- 模型名按 `flash` / `pro` 子串归桶，未来 `deepseek-v4-pro-20260101` 之类变体可自动归位
+- 仅当 `ANTHROPIC_BASE_URL` 含 `deepseek` 时显示，避免给真 Claude/OpenAI 用户看到错误的人民币价
+- 终端宽度 < 70 列自动隐藏
+
+> ⚠️ **配套修复**：`src/services/api/deepseek-direct.ts` 之前直连路径**完全没有把 token 用量写进 `STATE.modelUsage`**（硬编码 `costUSD: 0`，跳过 `addToTotalSessionCost`），导致 `/cost`、StatusLine、ModelStatsPanel 全部读到空数据。v1.0.1 在响应解析后补上了 `addToTotalSessionCost(0, json.usage, model)`——传 0 是为了避免 `modelCost.ts` 里仍套用 Claude USD 单价的错误价污染 `totalCostUSD`，CNY 由面板独立结算。
+
+### DeepSeek V4 系列单价
+
+| 模型 | 缓存命中输入 | 缓存未命中输入 | 输出 |
+|------|--------------|----------------|------|
+| `deepseek-v4-flash` | ¥0.02 / Mtok | ¥1 / Mtok | ¥2 / Mtok |
+| `deepseek-v4-pro`（2.5 折） | ¥0.025 / Mtok | ¥3 / Mtok | ¥6 / Mtok |
+| `deepseek-v4-pro`（原价） | ¥0.1 / Mtok | ¥12 / Mtok | ¥24 / Mtok |
+
+> 上下文 1M / 输出最大 384K，支持思考模式、Tool Calls、Json Output、对话前缀续写（Beta），FIM 补全仅非思考模式。
+
 ## v1.0.0 首次更新内容
 
 - 🔐 **去登录化** — 移除 Anthropic OAuth，直接使用 API Key
@@ -274,11 +302,15 @@ src/algorithms/
 │  🐱 Mochi    │                                      │
 │              ├──────────────────────────────────────┤
 │              │  > _                                  │
+│              │  flash  in 0 · out 0 · cache 0   ¥0  │
+│              │  pro    in 0 · out 0 · cache 0   ¥0  │
+│              │  累计 ¥0 · pro 当前 2.5 折            │
 └──────────────┴──────────────────────────────────────┘
 ```
 
 - `Ctrl+B` 切换侧边栏
-- 终端宽度 < 80 列自动隐藏
+- 终端宽度 < 80 列自动隐藏侧边栏；< 70 列自动隐藏计费面板
+- 计费面板每秒轮询一次 `STATE.modelUsage` 累加值（cost-tracker 在 React 之外 mutate 全局，没有事件订阅）
 
 ---
 

@@ -4,6 +4,7 @@
  */
 import type { Message, StreamEvent, AssistantMessage, SystemAPIErrorMessage } from '../../types/message.js'
 import type { Tools } from '../../Tool.js'
+import { addToTotalSessionCost } from '../../cost-tracker.js'
 
 type SystemPrompt = string | Array<{ type: string; text: string; [k: string]: any }>
 type Options = { model: string; [k: string]: any }
@@ -88,6 +89,20 @@ export async function* queryModelDeepSeekDirect(
     }
 
     const json = await res.json() as any
+
+    // Push usage into the global cost-tracker state so UI panels (e.g.
+    // ModelStatsPanel below the input box) can render accumulating token
+    // counts. Pass cost=0 because src/utils/modelCost.ts still uses Claude
+    // USD tiers for `deepseek-v4-*` (wrong by a factor of ~5×); the panel
+    // computes CNY from raw token counts independently and we don't want
+    // to pollute STATE.totalCostUSD with garbage.
+    if (json && json.usage) {
+      try {
+        addToTotalSessionCost(0, json.usage, json.model || model)
+      } catch {
+        // Cost tracking is best-effort — never fail the response on it.
+      }
+    }
 
     // Extract text content
     const textBlocks = (json.content || []).filter((b: any) => b.type === 'text')

@@ -209,6 +209,7 @@ import {
   FOOTER_TEMPORARY_STATUS_TIMEOUT,
   Notifications,
 } from './Notifications.js'
+import { ModelStatsPanel } from './ModelStatsPanel.js'
 import PromptInputFooter from './PromptInputFooter.js'
 import type { SuggestionItem } from './PromptInputFooterSuggestions.js'
 import { PromptInputModeIndicator } from './PromptInputModeIndicator.js'
@@ -2866,6 +2867,7 @@ function PromptInput({
           </Box>
         </Box>
       )}
+      <ModelStatsPanel />
       <PromptInputFooter
         apiKeyStatus={apiKeyStatus}
         debug={debug}
