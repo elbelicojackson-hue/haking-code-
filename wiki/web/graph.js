@@ -105,7 +105,8 @@ function drawAll() {
       .on('start', dragStart)
       .on('drag', dragged)
       .on('end', dragEnd))
-    .on('click', (event, d) => { event.stopPropagation(); selectNode(d.id); });
+    .on('click', (event, d) => { event.stopPropagation(); selectNode(d.id); })
+    .on('dblclick', (event, d) => { event.stopPropagation(); injectToTerminal(d.id); });
 
   nodeEnter.append('circle')
     .attr('r', d => d.kind === 'page' ? 9 : 7)
@@ -380,6 +381,23 @@ setInterval(() => {
   }
 }, 25000);
 
+
+// ---------- Inject to Terminal (double-click node) ----------
+
+async function injectToTerminal(id) {
+  const n = nodeIndex.get(id);
+  if (!n) return;
+  try {
+    const res = await fetch('/pages/' + encodeURIComponent(id));
+    const md = await res.text();
+    // Build a context block that can be pasted directly into Haking Code
+    const block = `[Wiki: ${n.title}]\n${md}`;
+    await navigator.clipboard.writeText(block);
+    toast(`✓ "${n.title}" 已复制 — 粘贴到终端作为上下文`);
+  } catch (err) {
+    toast('复制失败: ' + (err.message || err), true);
+  }
+}
 
 // ---------- Chat (AI Q&A) ----------
 

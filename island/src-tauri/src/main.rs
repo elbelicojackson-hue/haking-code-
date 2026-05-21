@@ -165,6 +165,24 @@ fn focus_terminal_window(session_id: String) {
 }
 
 #[tauri::command]
+fn open_wiki() {
+    #[cfg(target_os = "windows")]
+    {
+        Command::new("cmd")
+            .args(["/c", "start", "http://127.0.0.1:7891"])
+            .spawn()
+            .ok();
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        Command::new("open")
+            .arg("http://127.0.0.1:7891")
+            .spawn()
+            .ok();
+    }
+}
+
+#[tauri::command]
 fn list_tools() -> Vec<Tool> {
     load_tools_config().tools
 }
@@ -354,6 +372,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             save_window_position,
             focus_terminal_window,
+            open_wiki,
             list_tools,
             launch_tool,
             launch_split,
