@@ -1046,7 +1046,12 @@ async function* queryModel(
   // DeepSeek direct route — completely bypass Anthropic SDK
   const { useDirectRoute, queryModelDeepSeekDirect } = await import('./deepseek-direct.js')
   if (useDirectRoute()) {
-    yield* queryModelDeepSeekDirect(messages, systemPrompt, thinkingConfig, tools, signal, options)
+    // Must normalize messages the same way the SDK path does — strip internal
+    // metadata, ensure tool_result pairing, remove orphaned blocks. Without
+    // this, multi-turn tool-use conversations send malformed history to
+    // DeepSeek and get 400 or empty responses.
+    const normalized = ensureToolResultPairing(normalizeMessagesForAPI(messages, tools))
+    yield* queryModelDeepSeekDirect(normalized, systemPrompt, thinkingConfig, tools, signal, options)
     return
   }
   // Check cheap conditions first — the off-switch await blocks on GrowthBook
