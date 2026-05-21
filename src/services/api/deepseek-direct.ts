@@ -200,12 +200,12 @@ function buildApiMessages(messages: Message[]): Array<Record<string, unknown>> {
   // cache_control so the conversation prefix becomes cacheable across turns.
   // Only mutate user messages (assistant ones can have signed thinking
   // blocks that shouldn't be touched).
+  // IMPORTANT: only add cache_control to 'text' blocks. DeepSeek's
+  // /anthropic endpoint rejects cache_control on tool_result blocks.
   for (let i = out.length - 1; i >= 0; i--) {
     const m = out[i] as any
     if (m.role !== 'user') continue
     if (typeof m.content === 'string') {
-      // Promote string content to a single text block so we can attach
-      // cache_control to it.
       m.content = [
         {
           type: 'text',
@@ -214,9 +214,13 @@ function buildApiMessages(messages: Message[]): Array<Record<string, unknown>> {
         },
       ]
     } else if (Array.isArray(m.content) && m.content.length > 0) {
-      const last = m.content[m.content.length - 1]
-      if (last && typeof last === 'object') {
-        ;(last as any).cache_control = { type: 'ephemeral' }
+      // Find the last text block (skip tool_result blocks)
+      for (let j = m.content.length - 1; j >= 0; j--) {
+        const block = m.content[j]
+        if (block && typeof block === 'object' && block.type === 'text') {
+          ;(block as any).cache_control = { type: 'ephemeral' }
+          break
+        }
       }
     }
     break
@@ -528,6 +532,34 @@ async function* streamSSE(
     // Cost tracking is best-effort.
   }
 
+  // If DeepSeek returned zero content blocks AND zero output tokens, the
+  // model effectively refused to answer (context too long, malformed
+  // tool_result, or internal error that surfaced as empty response).
+  // Yield a visible error instead of a silent empty message.
+  if (contentBlocks.length === 0 && (finalUsage.output_tokens ?? 0) === 0) {
+    const hint = (finalUsage.input_tokens ?? 0) > 900_000
+      ? ' (input tokens near 1M limit — try /compact or start a new session)'
+      : ' (possible malformed tool_result or server-side refusal)'
+    yield {
+      type: 'assistant',
+      uuid: messageId || 'msg_' + Date.now(),
+      message: {
+        id: messageId || 'msg_' + Date.now(),
+        type: 'message',
+        role: 'assistant',
+        model: messageModel,
+        content: [{ type: 'text', text: `[DeepSeek returned empty response${hint}]` }],
+        stop_reason: 'end_turn',
+        stop_sequence: null,
+        usage: finalUsage,
+      },
+      costUSD: 0,
+      durationMs: 0,
+      requestId: messageId || 'msg_' + Date.now(),
+    } as any as AssistantMessage
+    return
+  }
+
   const msgUuid = messageId || 'msg_' + Date.now()
   yield {
     type: 'assistant',
@@ -537,9 +569,7 @@ async function* streamSSE(
       type: 'message',
       role: 'assistant',
       model: messageModel,
-      content: contentBlocks.length > 0
-        ? contentBlocks
-        : [{ type: 'text', text: '' }],
+      content: contentBlocks,
       stop_reason: finalStopReason || 'end_turn',
       stop_sequence: null,
       usage: finalUsage,
