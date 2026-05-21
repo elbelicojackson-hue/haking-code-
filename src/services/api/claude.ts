@@ -1043,6 +1043,12 @@ async function* queryModel(
   StreamEvent | AssistantMessage | SystemAPIErrorMessage,
   void
 > {
+  // DeepSeek direct route — completely bypass Anthropic SDK
+  const { useDirectRoute, queryModelDeepSeekDirect } = await import('./deepseek-direct.js')
+  if (useDirectRoute()) {
+    yield* queryModelDeepSeekDirect(messages, systemPrompt, tools, signal, options)
+    return
+  }
   // Check cheap conditions first — the off-switch await blocks on GrowthBook
   // init (~10ms). For non-Opus models (haiku, sonnet) this skips the await
   // entirely. Subscribers don't hit this path at all.
@@ -1865,9 +1871,56 @@ async function* queryModel(
         // BetaMessageStream calls partialParse() on every input_json_delta, which we don't need
         // since we handle tool input accumulation ourselves
         // biome-ignore lint/plugin: main conversation loop handles attribution separately
+        // DeepSeek direct route — bypass SDK Zod validation entirely
+        const { useDirectRoute, deepseekCreate } = await import('./deepseek-direct.js')
+        if (useDirectRoute()) {
+          const directResult = await deepseekCreate({
+            model: params.model,
+            messages: params.messages as any,
+            system: typeof params.system === 'string' ? params.system : Array.isArray(params.system) ? params.system.map((s: any) => s.text || '').join('\n') : undefined,
+            max_tokens: params.max_tokens,
+            temperature: (params as any).temperature,
+            tools: params.tools as any,
+            signal,
+          })
+          queryCheckpoint('query_response_headers_received')
+          streamRequestId = directResult.id
+          // Return as a fake stream that yields events then the final message
+          const fakeMessage = {
+            id: directResult.id,
+            type: 'message',
+            role: 'assistant',
+            model: directResult.model,
+            content: directResult.content,
+            stop_reason: directResult.stop_reason || 'end_turn',
+            stop_sequence: null,
+            usage: directResult.usage,
+          }
+          // Create an async iterable that mimics BetaMessageStream
+          return {
+            [Symbol.asyncIterator]: async function*() {
+              for (const block of directResult.content) {
+                if (block.type === 'thinking') {
+                  yield { type: 'content_block_start', index: 0, content_block: { type: 'thinking', thinking: '' } }
+                  yield { type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking: (block as any).thinking } }
+                  yield { type: 'content_block_stop', index: 0 }
+                } else if (block.type === 'text') {
+                  yield { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } }
+                  yield { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: (block as any).text } }
+                  yield { type: 'content_block_stop', index: 0 }
+                }
+              }
+              yield { type: 'message_delta', delta: { stop_reason: directResult.stop_reason || 'end_turn' }, usage: directResult.usage }
+              yield { type: 'message_stop' }
+            },
+            finalMessage: async () => fakeMessage,
+            get controller() { return { signal } },
+          } as any
+        }
+
         const result = await anthropic.beta.messages
           .create(
-            { ...params, stream: true },
+            { ...params, stream: !process.env.ANTHROPIC_DISABLE_STREAMING },
             {
               signal,
               ...(clientRequestId && {
