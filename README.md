@@ -116,6 +116,35 @@ Hub 读文件时 mtime > 8s 视为死亡 → unlink
 
 没装 wt.exe 的老 Windows → 回退到每工具一个独立 cmd 窗口。
 
+## 📚 Haking Wiki — 知识图谱
+
+`wiki/` 目录是一个独立的 Bun 应用，提供安全研究知识图谱 + D3 力导向可视化 + Markdown 预览。
+
+```bash
+cd wiki && bun run dev
+# → http://localhost:7891
+```
+
+> ⚠️ **爬虫功能需要自行配置 Firecrawl API Key**
+>
+> Wiki 的 "Add Page" 功能通过 [Firecrawl](https://firecrawl.dev) 爬取网页并转为 Markdown。**必须先获取 API Key 并配置到环境变量**，否则爬取会失败（回退到原生 fetch + Turndown，但对 JS 渲染页面效果差）。
+>
+> ```bash
+> # 方式 1：.env 文件（项目根目录）
+> FIRECRAWL_API_KEY=fc-xxxxxxxxxxxxxxxx
+>
+> # 方式 2：环境变量
+> set FIRECRAWL_API_KEY=fc-xxxxxxxxxxxxxxxx
+>
+> # 方式 3：/setup 命令配置（Haking Code 内）
+> ```
+>
+> 获取 Key：https://firecrawl.dev → 注册 → Dashboard → API Keys
+>
+> 免费额度：500 次/月，足够日常研究使用。
+
+---
+
 ## v1.0.0 首次更新内容
 
 - 🔐 **去登录化** — 移除 Anthropic OAuth，直接使用 API Key
