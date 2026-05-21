@@ -1,0 +1,8 @@
+# Rust build artifacts
+src-tauri/target/
+
+# Tauri runtime-generated schemas (regenerated at every cargo build)
+src-tauri/gen/schemas/
+
+# Bundle output
+src-tauri/release/

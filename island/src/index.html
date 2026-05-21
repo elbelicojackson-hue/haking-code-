@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { background: transparent; overflow: hidden; font-family: 'Consolas', 'Courier New', monospace; user-select: none; }
+
+.island {
+  position: relative;
+  border-radius: 16px;
+  background: rgba(10, 10, 20, 0.88);
+  backdrop-filter: blur(12px);
+  padding: 2px;
+  transition: height 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), width 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  width: 260px;
+  height: 38px;
+  overflow: hidden;
+}
+.island.expanded { height: 280px; width: 280px; }
+
+/* RGB 跑马灯边框 */
+.island::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 16px;
+  padding: 2px;
+  background: conic-gradient(from var(--angle, 0deg), #00fff7, #a855f7, #ff2d95, #00fff7);
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  animation: rotate 2s linear infinite;
+}
+@property --angle { syntax: '<angle>'; initial-value: 0deg; inherits: false; }
+@keyframes rotate { to { --angle: 360deg; } }
+
+/* 内容区 */
+.content { position: relative; z-index: 1; padding: 8px 12px; }
+
+/* 收起状态 */
+.header { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.status-dot { width: 8px; height: 8px; border-radius: 50%; background: #00ff88; animation: pulse 2s infinite; }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+.title { color: #00fff7; font-weight: bold; font-size: 11px; }
+.meta { color: #888; font-size: 10px; margin-left: auto; }
+
+/* 展开内容 */
+.body { margin-top: 8px; display: none; }
+.island.expanded .body { display: block; }
+.divider { height: 1px; background: linear-gradient(90deg, transparent, #a855f7, transparent); margin: 6px 0; }
+
+/* Sessions */
+.session { display: flex; align-items: center; gap: 6px; padding: 3px 6px; border-radius: 6px; font-size: 11px; color: #ccc; cursor: pointer; }
+.session:hover { background: rgba(168, 85, 247, 0.15); }
+.session .dot { width: 6px; height: 6px; border-radius: 50%; }
+.dot.running { background: #00ff88; }
+.dot.idle { background: #555; }
+
+/* Tools 区 */
+.section-label { font-size: 9px; color: #666; text-transform: uppercase; letter-spacing: 1px; margin: 4px 0 6px; display: flex; align-items: center; gap: 6px; }
+.section-label .hint { margin-left: auto; color: #444; font-size: 9px; text-transform: none; letter-spacing: 0; }
+
+.tools-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+.tool {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 6px;
+  border-radius: 8px;
+  font-size: 10px;
+  color: #ccc;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.04);
+  transition: background 0.15s, transform 0.1s;
+  border: 1px solid transparent;
+}
+.tool:hover { background: rgba(255, 255, 255, 0.10); transform: translateY(-1px); }
+.tool.selected {
+  background: rgba(168, 85, 247, 0.18);
+  border-color: rgba(168, 85, 247, 0.6);
+}
+.tool .ball {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  box-shadow: 0 0 8px var(--c, #888);
+  background: var(--c, #888);
+}
+.tool .name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Layout 区 */
+.layout-row { display: flex; gap: 6px; margin-top: 4px; }
+.layout-btn {
+  flex: 1;
+  text-align: center;
+  padding: 5px 4px;
+  border-radius: 6px;
+  font-size: 10px;
+  color: #aaa;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.03);
+  transition: background 0.15s, color 0.15s;
+}
+.layout-btn:hover { background: rgba(0, 255, 247, 0.12); color: #00fff7; }
+.layout-btn.disabled { opacity: 0.3; pointer-events: none; }
+
+.stats { display: flex; gap: 12px; font-size: 10px; color: #666; margin-top: 6px; }
+.stats span { color: #00fff7; }
+
+/* 关闭按钮 */
+.close { position: absolute; top: 8px; right: 10px; color: #555; font-size: 12px; cursor: pointer; z-index: 2; display: none; }
+.island.expanded .close { display: block; }
+.close:hover { color: #ff2d95; }
+</style>
+</head>
+<body>
+<div class="island" id="island" data-tauri-drag-region>
+  <div class="content">
+    <div class="header" id="header" data-tauri-drag-region>
+      <div class="status-dot"></div>
+      <span class="title">HAKING</span>
+      <span class="meta" id="meta">connecting...</span>
+    </div>
+    <div class="body">
+      <div class="divider"></div>
+      <div id="sessions"></div>
+
+      <div class="section-label">
+        TOOLS
+        <span class="hint" id="toolsHint">click 启动 · shift+click 多选</span>
+      </div>
+      <div class="tools-grid" id="toolsGrid"></div>
+
+      <div class="section-label">LAYOUT</div>
+      <div class="layout-row">
+        <div class="layout-btn disabled" data-layout="vertical"   id="lyV">▮▮ 左右</div>
+        <div class="layout-btn disabled" data-layout="horizontal" id="lyH">≡ 上下</div>
+        <div class="layout-btn disabled" data-layout="grid"       id="lyG">⊞ 田字</div>
+        <div class="layout-btn disabled" data-layout="tabs"       id="lyT">▤ 多 Tab</div>
+      </div>
+
+      <div class="divider"></div>
+      <div class="stats">
+        <div>🧠 <span id="model">—</span></div>
+        <div>📊 <span id="tokens">0</span> tok</div>
+        <div>💰 <span id="cost">¥0</span></div>
+      </div>
+    </div>
+  </div>
+  <div class="close" id="closeBtn">✕</div>
+</div>
+
+<script>
+const { invoke } = window.__TAURI__.core;
+const island       = document.getElementById('island');
+const meta         = document.getElementById('meta');
+const sessionsEl   = document.getElementById('sessions');
+const modelEl      = document.getElementById('model');
+const tokensEl     = document.getElementById('tokens');
+const costEl       = document.getElementById('cost');
+const toolsGridEl  = document.getElementById('toolsGrid');
+const toolsHint    = document.getElementById('toolsHint');
+const layoutBtns   = [...document.querySelectorAll('.layout-btn')];
+
+// Explicit drag handler — see capabilities/default.json for permission.
+// data-tauri-drag-region is unreliable on transparent + decorations:false
+// windows; calling startDragging() from mousedown is the stable path.
+island.addEventListener('mousedown', async (e) => {
+  if (e.button !== 0) return;
+  if (e.target.closest('.session, .close, .tool, .layout-btn')) return;
+  try {
+    await window.__TAURI__.window.getCurrentWindow().startDragging();
+  } catch (err) {
+    console.error('startDragging failed:', err);
+  }
+});
+
+// Toggle expand on click; triple-click closes the process.
+island.addEventListener('click', e => {
+  if (e.target.closest('.session, .close, .tool, .layout-btn')) return;
+  if (e.detail >= 3) {
+    window.__TAURI__.window.getCurrentWindow().close();
+    return;
+  }
+  island.classList.toggle('expanded');
+  const expanded = island.classList.contains('expanded');
+  const h = expanded ? 290 : 42;
+  const w = expanded ? 290 : 260;
+  window.__TAURI__.window.getCurrentWindow().setSize(new window.__TAURI__.window.LogicalSize(w, h));
+});
+
+document.getElementById('closeBtn').addEventListener('click', () => {
+  window.__TAURI__.window.getCurrentWindow().close();
+});
+
+// ---------- Tools ----------
+const selectedTools = new Set();   // ids selected for split launch
+let toolsCache = [];
+
+async function loadTools() {
+  try {
+    toolsCache = await invoke('list_tools');
+  } catch (err) {
+    console.error('list_tools failed:', err);
+    toolsCache = [];
+  }
+  renderTools();
+}
+
+function renderTools() {
+  toolsGridEl.innerHTML = toolsCache.map(t => `
+    <div class="tool ${selectedTools.has(t.id) ? 'selected' : ''}" data-id="${t.id}" title="${t.name}: ${t.command} ${(t.args || []).join(' ')}">
+      <div class="ball" style="--c: ${t.color || '#888'}"></div>
+      <div class="name">${t.name}</div>
+    </div>
+  `).join('');
+}
+
+toolsGridEl.addEventListener('click', async e => {
+  const el = e.target.closest('.tool');
+  if (!el) return;
+  const id = el.dataset.id;
+  if (e.shiftKey) {
+    // Multi-select for split launch
+    if (selectedTools.has(id)) selectedTools.delete(id);
+    else selectedTools.add(id);
+    renderTools();
+    updateLayoutButtons();
+    return;
+  }
+  // Single-click: launch immediately
+  try {
+    await invoke('launch_tool', { id });
+  } catch (err) {
+    console.error('launch_tool failed:', err);
+  }
+});
+
+function updateLayoutButtons() {
+  const n = selectedTools.size;
+  toolsHint.textContent = n > 0
+    ? `${n} 个已选 · 点击 layout 启动`
+    : 'click 启动 · shift+click 多选';
+  layoutBtns.forEach(b => {
+    if (n >= 2) b.classList.remove('disabled');
+    else b.classList.add('disabled');
+  });
+}
+
+layoutBtns.forEach(btn => {
+  btn.addEventListener('click', async () => {
+    if (btn.classList.contains('disabled')) return;
+    const layout = btn.dataset.layout;
+    const ids = [...selectedTools];
+    if (ids.length < 2) return;
+    try {
+      await invoke('launch_split', { ids, layout });
+      // Clear selection after successful launch.
+      selectedTools.clear();
+      renderTools();
+      updateLayoutButtons();
+    } catch (err) {
+      console.error('launch_split failed:', err);
+    }
+  });
+});
+
+// ---------- Position persistence ----------
+setInterval(async () => {
+  try {
+    const pos = await window.__TAURI__.window.getCurrentWindow().outerPosition();
+    invoke('save_window_position', { x: pos.x, y: pos.y });
+  } catch {}
+}, 5000);
+
+// ---------- WebSocket connection (token / cost / sessions) ----------
+let ws;
+function connect() {
+  ws = new WebSocket('ws://127.0.0.1:7890');
+  ws.onopen = () => { meta.textContent = 'connected'; };
+  ws.onclose = () => { meta.textContent = 'disconnected'; setTimeout(connect, 3000); };
+  ws.onmessage = e => {
+    try { render(JSON.parse(e.data)); } catch {}
+  };
+}
+
+function render(data) {
+  const sessions = data.sessions || [];
+  meta.textContent = `${sessions.length} session${sessions.length !== 1 ? 's' : ''}`;
+  sessionsEl.innerHTML = sessions.map(s => `
+    <div class="session" ondblclick="focusSession('${s.id}')">
+      <div class="dot ${s.status}"></div>
+      <span>${s.name || s.id}</span>
+      <span style="margin-left:auto;color:#555;font-size:10px">${s.status}</span>
+    </div>
+  `).join('');
+
+  modelEl.textContent  = data.model || '—';
+  tokensEl.textContent = (data.totalTokens || 0).toLocaleString();
+  costEl.textContent   = '¥' + (data.totalCost || 0).toFixed(4);
+}
+
+window.focusSession = (id) => {
+  invoke('focus_terminal_window', { sessionId: id });
+};
+
+loadTools();
+connect();
+</script>
+</body>
+</html>

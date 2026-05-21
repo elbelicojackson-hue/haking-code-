@@ -1,0 +1,9 @@
+{
+  "name": "haking-island",
+  "version": "1.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "cargo tauri dev",
+    "build": "cargo tauri build"
+  }
+}
