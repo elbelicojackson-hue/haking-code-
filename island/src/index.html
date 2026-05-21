@@ -20,7 +20,7 @@ html, body { background: transparent; overflow: hidden; font-family: 'Consolas',
 }
 .island.expanded { height: 280px; width: 280px; }
 
-/* RGB 跑马灯边框 */
+/* RGB 跑马灯边框 — 速度和亮度随 AI token rate 变化 */
 .island::before {
   content: '';
   position: absolute;
@@ -31,10 +31,26 @@ html, body { background: transparent; overflow: hidden; font-family: 'Consolas',
   -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
   -webkit-mask-composite: xor;
   mask-composite: exclude;
-  animation: rotate 2s linear infinite;
+  animation: rotate var(--spin-speed, 2s) linear infinite;
+  opacity: var(--glow-intensity, 0.4);
+  transition: opacity 0.3s ease;
 }
 @property --angle { syntax: '<angle>'; initial-value: 0deg; inherits: false; }
 @keyframes rotate { to { --angle: 360deg; } }
+
+/* Pulse glow behind the island when active */
+.island::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border-radius: 20px;
+  background: conic-gradient(from var(--angle, 0deg), #00fff7, #a855f7, #ff2d95, #00fff7);
+  filter: blur(12px);
+  opacity: var(--glow-outer, 0);
+  animation: rotate var(--spin-speed, 2s) linear infinite;
+  transition: opacity 0.5s ease;
+  z-index: -1;
+}
 
 /* 内容区 */
 .content { position: relative; z-index: 1; padding: 8px 12px; }
@@ -316,6 +332,29 @@ function connect() {
   };
 }
 
+// ---------- Token rate → border animation ----------
+let lastTokenCount = 0;
+let tokenRate = 0;  // tokens/sec (smoothed)
+
+function updateBorderAnimation(currentTokens) {
+  const delta = currentTokens - lastTokenCount;
+  lastTokenCount = currentTokens;
+  // Exponential moving average (α=0.3) for smooth transitions
+  tokenRate = tokenRate * 0.7 + (delta > 0 ? delta : 0) * 0.3;
+
+  // Map token rate to animation parameters:
+  // 0 tok/s → slow spin (3s), dim (0.3), no outer glow
+  // 50+ tok/s → fast spin (0.3s), bright (1.0), full outer glow
+  const t = Math.min(tokenRate / 50, 1); // normalize 0-1
+  const speed = (3 - t * 2.7).toFixed(2) + 's';      // 3s → 0.3s
+  const intensity = (0.3 + t * 0.7).toFixed(2);       // 0.3 → 1.0
+  const outer = (t * 0.35).toFixed(2);                 // 0 → 0.35
+
+  island.style.setProperty('--spin-speed', speed);
+  island.style.setProperty('--glow-intensity', intensity);
+  island.style.setProperty('--glow-outer', outer);
+}
+
 function render(data) {
   const sessions = data.sessions || [];
   meta.textContent = `${sessions.length} session${sessions.length !== 1 ? 's' : ''}`;
@@ -336,6 +375,9 @@ function render(data) {
   modelEl.textContent  = data.model || '—';
   tokensEl.textContent = (data.totalTokens || 0).toLocaleString();
   costEl.textContent   = '¥' + (data.totalCost || 0).toFixed(4);
+
+  // Drive border animation from token delta
+  updateBorderAnimation(data.totalTokens || 0);
 }
 
 window.focusSession = (id) => {
