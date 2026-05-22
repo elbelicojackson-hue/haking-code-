@@ -43,9 +43,42 @@ export type CveQueryResult = {
 
 const NVD_API_BASE = 'https://services.nvd.nist.gov/rest/json/cves/2.0'
 const CISA_KEV_URL = 'https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json'
+const CIRCL_API_BASE = 'https://cve.circl.lu/api/cve'
 
 /** CVE-ID pattern: CVE-YYYY-NNNNN+ */
 export const CVE_PATTERN = /CVE-\d{4}-\d{4,}/gi
+
+/* -------------------------------------------------------------------------- */
+/* CIRCL cve-search.org (Tier 0 — free, no key, no rate limit)                */
+/* -------------------------------------------------------------------------- */
+
+async function queryCIRCL(cveId: string): Promise<CveCitation | null> {
+  try {
+    const res = await fetch(`${CIRCL_API_BASE}/${cveId}`, {
+      signal: AbortSignal.timeout(8_000),
+    })
+    if (!res.ok) return null
+
+    const json = await res.json() as any
+    if (!json || !json.id) return null
+
+    const cvss = json.cvss ?? json.cvss3 ?? undefined
+    const severity = mapSeverity(cvss)
+    const desc = (json.summary ?? '').slice(0, 300)
+
+    return {
+      id: cveId,
+      source: 'NVD', // CIRCL mirrors NVD data
+      url: `https://cve.circl.lu/cve/${cveId}`,
+      description: desc,
+      severity,
+      cvss,
+      datePublished: json.Published?.slice(0, 10),
+    }
+  } catch {
+    return null
+  }
+}
 
 /* -------------------------------------------------------------------------- */
 /* NVD API (Tier 1)                                                           */
@@ -148,9 +181,14 @@ async function queryFirecrawl(cveId: string): Promise<CveCitation | null> {
 
 /**
  * Query a single CVE across all tiers. Returns the best available citation.
+ * Priority: CIRCL (free) → NVD → CISA KEV → Firecrawl
  */
 export async function queryCVE(cveId: string): Promise<CveCitation | null> {
-  // Tier 1: NVD
+  // Tier 0: CIRCL (free, no key, no rate limit)
+  const circl = await queryCIRCL(cveId)
+  if (circl) return circl
+
+  // Tier 1: NVD (free, rate-limited without key)
   const nvd = await queryNVD(cveId)
   if (nvd) return nvd
 
