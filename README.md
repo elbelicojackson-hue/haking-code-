@@ -136,9 +136,36 @@ Tauri 2 桌面应用，悬浮在屏幕顶部，一键启动/切换所有 AI codi
 
 专为网络安全研究员打造的终端 AI Agent，集成逆向工程、渗透测试、多模型对抗共识等能力。
 
-## 📋 更新日志（v1.1.0 → v1.1.2）
+## 📋 更新日志（v1.1.0 → v1.2.0）
 
 > 以下为 v1.0.1 之后的全部 commit 摘要，按时间倒序。
+
+### `cce0d44` feat(cve): 添加CIRCL免费数据源作为首选(无需API key)
+
+CVE 查询优先级调整为：CIRCL (cve.circl.lu，完全免费无 key 无限速) → NVD → CISA KEV → Firecrawl。零配置即可用。
+
+---
+
+### `b48fe28` feat: CVE强制引用框架 - NVD/CISA KEV/Firecrawl三层数据源
+
+新增 `src/services/cveDataSource.ts`（CVE 强制引用框架）：
+
+- **三层数据源**：CIRCL → NVD API → CISA KEV → Firecrawl fallback
+- **自动检测**：AI 响应中提到任何 CVE-ID 自动触发查询
+- **强制引用**：系统 prompt `<cve_mandatory_citation>` 禁止编造 CVSS/描述
+- **在野利用标记**：CISA KEV 中的 CVE 自动标注 ⚠️ ACTIVELY EXPLOITED
+
+---
+
+### `d615bc2` feat(todo): 参考CC2.0强化运行时校验+prompt规则
+
+TodoWriteTool 优化（参考 Claude Code 2.0 设计）：
+
+- 运行时校验：in_progress 数量必须恰好 1 个，违反即警告
+- 批量完成检测：单次只能完成 1 个 task，违反即警告
+- 新增 prompt 规则：Research Before Planning、Blocked Task Protocol
+
+---
 
 ### `1bca835` feat: PEV强制查证模块 - 不确定时自动Firecrawl查证
 
