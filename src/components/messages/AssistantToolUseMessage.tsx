@@ -84,8 +84,8 @@ export function AssistantToolUseMessage({
     if (!tools) return null
     const tool = findToolByName(tools, param.name)
     if (!tool) return null
-    const input = tool.inputSchema.safeParse(param.input)
-    const data = input.success ? input.data : undefined
+    const input = tool.inputSchema?.safeParse(param.input)
+    const data = input?.success ? input.data : undefined
     return {
       tool,
       input,
