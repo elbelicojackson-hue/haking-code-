@@ -136,9 +136,32 @@ Tauri 2 桌面应用，悬浮在屏幕顶部，一键启动/切换所有 AI codi
 
 专为网络安全研究员打造的终端 AI Agent，集成逆向工程、渗透测试、多模型对抗共识等能力。
 
-## 📋 更新日志（v1.1.0 → v1.1.1 hotfix）
+## 📋 更新日志（v1.1.0 → v1.1.2）
 
 > 以下为 v1.0.1 之后的全部 commit 摘要，按时间倒序。
+
+### `1bca835` feat: PEV强制查证模块 - 不确定时自动Firecrawl查证
+
+新增 `src/algorithms/cav/pev/forcedVerification.ts`（纯算法驱动的强制事实查证）：
+
+- **不确定性检测器**：正则+加权评分，扫描 hedging 词（"I think"/"可能"/"IIRC"）、版本号声明、技术名称、API 断言
+- **强制触发**：score > 0.4 时自动调用 Firecrawl 搜索最新技术文档
+- **系统 prompt 注入**：`<forced_verification>` section 强制模型引用 `[VERIFIED]` 证据块
+- **stopHook 集成**：每轮 assistant 响应后自动执行，证据作为 system message 注入下一轮
+
+需要 `FIRECRAWL_API_KEY` 环境变量。未配置时静默跳过。
+
+---
+
+### `5a18bf3` fix: 修复滚轮滚动瞬间跳到顶部/底部的bug
+
+`ScrollKeybindingHandler.tsx` 滚轮加速逻辑修复：
+
+- 降低 wheelMode 加速参数（STEP/CAP: 15→8）避免单次步长过大
+- `scroll:lineUp`/`lineDown` 限制步长不超过视口高度 1/3
+- `scrollUp`/`scrollDown` 接近边界时只滚剩余距离，不再直接跳到极端位置
+
+---
 
 ### `669d09b` fix(deepseek): normalize messages before sending to direct route
 
