@@ -50,6 +50,8 @@ import setup from './commands/setup/index.js'
 import arena from './commands/arena/index.js'
 import wiki from './commands/wiki/index.js'
 import island from './commands/island/index.js'
+import handoff from './commands/handoff/index.js'
+import pickup from './commands/pickup/index.js'
 /* eslint-disable @typescript-eslint/no-require-imports */
 const agentsPlatform =
   process.env.USER_TYPE === 'ant'
@@ -311,6 +313,8 @@ const COMMANDS = memoize((): Command[] => [
   arena,
   wiki,
   island,
+  handoff,
+  pickup,
   agents,
   branch,
   btw,
