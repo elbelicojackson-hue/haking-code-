@@ -56,7 +56,6 @@ import {
   createCacheSafeParams,
   saveCacheSafeParams,
 } from '../utils/forkedAgent.js'
-import { executeVerification } from '../algorithms/cav/pev/forcedVerification.js'
 import { getAssistantMessageText } from '../utils/messages.js'
 
 type StopHookResult = {
@@ -148,6 +147,20 @@ export async function* handleStopHooks(
     if (lastAssistant) {
       const text = getAssistantMessageText(lastAssistant)
       if (text) {
+        const {
+          executeVerification,
+          advanceCitationTurn,
+          isDuplicate,
+          markCited,
+          trimToBudget,
+        } = await import('../algorithms/cav/pev/forcedVerification.js')
+
+        // Advance turn counter for dedup tracking
+        advanceCitationTurn()
+
+        const citationBlocks: string[] = []
+
+        // Uncertainty verification
         const verification = await executeVerification(text)
         if (verification.triggered && verification.evidence.length > 0) {
           const evidenceBlock = [
@@ -155,16 +168,13 @@ export async function* handleStopHooks(
             ...verification.evidence.map((e, i) => `[${i + 1}] ${e}`),
             '[/VERIFIED]',
           ].join('\n')
-          yield createSystemMessage(evidenceBlock, 'info')
+          citationBlocks.push(evidenceBlock)
           logForDebugging(
             `[forced-verification] triggered (score=${verification.score.toFixed(2)}, queries=${verification.queries.length})`,
           )
         }
 
-        // ── CVE Mandatory Citation ────────────────────────────────────
-        // Any CVE-ID mentioned in the response MUST be backed by an
-        // authoritative citation (NVD → CISA KEV → Firecrawl).
-        // Only triggers when CVE-IDs are explicitly present.
+        // CVE citation (only if CVE-IDs present)
         const { extractAndQueryCVEs, formatCveCitations, CVE_PATTERN } = await import(
           '../services/cveDataSource.js'
         )
@@ -172,45 +182,45 @@ export async function* handleStopHooks(
           CVE_PATTERN.lastIndex = 0
           const cveResult = await extractAndQueryCVEs(text)
           if (cveResult.found) {
-            const cveBlock = formatCveCitations(cveResult.citations)
-            yield createSystemMessage(cveBlock, 'info')
-            logForDebugging(
-              `[cve-citation] ${cveResult.citations.length} CVEs cited from ${[...new Set(cveResult.citations.map(c => c.source))].join('+')}`,
-            )
+            const newCitations = cveResult.citations.filter(c => !isDuplicate(c.id))
+            if (newCitations.length > 0) {
+              for (const c of newCitations) markCited(c.id)
+              citationBlocks.push(formatCveCitations(newCitations))
+              logForDebugging(`[cve-citation] ${newCitations.length} new CVEs cited`)
+            }
           }
         }
 
-        // ── RE Intelligence Mandatory Citation ────────────────────────
-        // Only triggers in security-relevant context: must contain
-        // security keywords AND actual indicators (hashes/IPs/MITRE IDs).
-        // This prevents false positives on normal coding conversations.
+        // RE Intelligence (only in security context)
         const SECURITY_CONTEXT = /\b(malware|exploit|reverse.?engineer|payload|shellcode|c2|command.?and.?control|backdoor|trojan|ransomware|apt|threat|ioc|indicator|yara|sigma|detection|evasion|obfuscat|pack(?:er|ed)|upx|vmprotect|themida)\b/i
         if (SECURITY_CONTEXT.test(text)) {
           const { extractIndicators, queryREIntel, formatRECitations } = await import(
             '../services/reverseEngineeringDB.js'
           )
           const indicators = extractIndicators(text)
-          // Only query if we found real indicators (not just hex color codes)
           const realIndicators = indicators.filter(i =>
-            // SHA-256 (64 hex) or MITRE ID are always real
             /^[a-f0-9]{64}$/i.test(i) || /^T\d{4}/i.test(i) ||
-            // SHA-1 (40 hex) only if in security context (already checked)
             /^[a-f0-9]{40}$/i.test(i) ||
-            // IPs/domains/URLs are fine
             /^https?:\/\//.test(i) || /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(i)
-          )
+          ).filter(i => !isDuplicate(i))
+
           if (realIndicators.length > 0) {
             const results = await Promise.allSettled(realIndicators.slice(0, 5).map(i => queryREIntel(i)))
             const allCitations = results
               .filter((r): r is PromiseFulfilledResult<any> => r.status === 'fulfilled' && r.value.found)
               .flatMap(r => r.value.citations)
             if (allCitations.length > 0) {
-              yield createSystemMessage(formatRECitations(allCitations), 'info')
-              logForDebugging(
-                `[re-intel] ${allCitations.length} citations from ${[...new Set(allCitations.map(c => c.source))].join('+')}`,
-              )
+              for (const i of realIndicators) markCited(i)
+              citationBlocks.push(formatRECitations(allCitations))
+              logForDebugging(`[re-intel] ${allCitations.length} citations`)
             }
           }
+        }
+
+        // Apply budget control and emit single system message
+        if (citationBlocks.length > 0) {
+          const trimmed = trimToBudget(citationBlocks)
+          if (trimmed) yield createSystemMessage(trimmed, 'info')
         }
       }
     }

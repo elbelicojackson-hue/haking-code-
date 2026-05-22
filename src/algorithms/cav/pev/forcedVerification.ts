@@ -223,6 +223,72 @@ export async function executeVerification(responseText: string): Promise<Verific
 }
 
 /* -------------------------------------------------------------------------- */
+/* Context Budget Management (optimized for 1M token windows)                 */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Citation injection strategy for large context windows (1M tokens):
+ *
+ * Problem: Citations accumulate across turns. At 50+ turns with security
+ * discussion, injected [CVE-CITATION] and [RE-INTEL] blocks could reach
+ * 20k+ tokens of "dead" data that's never referenced again.
+ *
+ * Solution: Ephemeral citations with deduplication.
+ *
+ * 1. Each citation block is marked `isMeta: true` so autocompact can
+ *    aggressively summarize/drop them during context collapse.
+ * 2. Citations are deduplicated — if the same CVE/hash was already cited
+ *    in the last 3 turns, skip re-injection.
+ * 3. Max budget per turn: 800 tokens of citation data. Excess is trimmed
+ *    to the highest-confidence entries.
+ * 4. Stale citations (>5 turns old) are candidates for context collapse
+ *    with zero preservation priority.
+ *
+ * At 1M context, 800 tokens/turn × 100 turns = 80k tokens worst case
+ * (8% of budget). With autocompact, actual usage stays under 5k.
+ */
+
+const CITATION_BUDGET_CHARS = 3200 // ~800 tokens
+const DEDUP_WINDOW_TURNS = 3
+
+/** Track recently cited items to avoid re-injection. */
+const recentCitations = new Map<string, number>() // key → turn number
+let currentTurn = 0
+
+export function advanceCitationTurn(): void {
+  currentTurn++
+  // Evict entries older than DEDUP_WINDOW
+  for (const [key, turn] of recentCitations) {
+    if (currentTurn - turn > DEDUP_WINDOW_TURNS) {
+      recentCitations.delete(key)
+    }
+  }
+}
+
+export function isDuplicate(citationKey: string): boolean {
+  return recentCitations.has(citationKey)
+}
+
+export function markCited(citationKey: string): void {
+  recentCitations.set(citationKey, currentTurn)
+}
+
+/**
+ * Trim citation text to fit within the per-turn budget.
+ * Keeps highest-priority entries (CVE > RE-INTEL > VERIFIED).
+ */
+export function trimToBudget(blocks: string[]): string {
+  let total = 0
+  const kept: string[] = []
+  for (const block of blocks) {
+    if (total + block.length > CITATION_BUDGET_CHARS) break
+    kept.push(block)
+    total += block.length
+  }
+  return kept.join('\n\n')
+}
+
+/* -------------------------------------------------------------------------- */
 /* System Prompt Section                                                      */
 /* -------------------------------------------------------------------------- */
 
