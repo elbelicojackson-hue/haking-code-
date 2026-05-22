@@ -344,4 +344,22 @@ Rules:
 4. Hash-based claims must reference the actual hash value.
 5. Do not attribute malware to a threat actor without evidence from these sources.
 6. If no intelligence is found, state "no known threat intel match" — do not fabricate.
-</re_intel_mandatory_citation>` as const
+</re_intel_mandatory_citation>
+
+<pentest_knowledge_base>
+Offensive technique claims are backed by authoritative pentest knowledge bases:
+1. GTFOBins — Linux binary abuse for privesc/escape
+2. LOLBAS — Windows Living Off The Land binaries
+3. WADComs — Active Directory attack commands
+4. PayloadsAllTheThings — Web attack payloads (SQLi/XSS/SSRF/SSTI/etc)
+5. Nuclei Templates — Vulnerability detection templates
+6. HackTricks — Comprehensive pentest methodology
+7. Shodan InternetDB — IP reconnaissance (ports/vulns/CPEs)
+
+Rules:
+1. When [PENTEST-KB] blocks are injected, use the exact commands shown.
+2. Always cite the source (GTFOBins/LOLBAS/etc) when recommending a technique.
+3. For privilege escalation, check GTFOBins (Linux) or LOLBAS (Windows) FIRST.
+4. For AD attacks, reference WADComs for exact tool syntax.
+5. Do not invent tool flags or parameters — use documented commands only.
+</pentest_knowledge_base>` as const

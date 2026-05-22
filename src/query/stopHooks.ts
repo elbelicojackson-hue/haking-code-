@@ -217,6 +217,31 @@ export async function* handleStopHooks(
           }
         }
 
+        // ── Pentest Knowledge DB ──────────────────────────────────────
+        // Triggers on offensive technique keywords. Queries GTFOBins,
+        // LOLBAS, WADComs, PayloadsAllTheThings, Nuclei, HackTricks.
+        const { PENTEST_TRIGGERS, queryPentestDB, formatPentestCitations } = await import(
+          '../services/pentestKnowledgeDB.js'
+        )
+        if (PENTEST_TRIGGERS.test(text)) {
+          PENTEST_TRIGGERS.lastIndex = 0
+          // Extract the most specific technique/tool mentioned
+          const matches = text.match(PENTEST_TRIGGERS)
+          if (matches) {
+            const uniqueTerms = [...new Set(matches.map(m => m.toLowerCase()))].filter(t => !isDuplicate(`pentest:${t}`))
+            const pentestResults = (await Promise.allSettled(
+              uniqueTerms.slice(0, 3).map(t => queryPentestDB(t)),
+            ))
+              .filter((r): r is PromiseFulfilledResult<any[]> => r.status === 'fulfilled')
+              .flatMap(r => r.value)
+            if (pentestResults.length > 0) {
+              for (const t of uniqueTerms) markCited(`pentest:${t}`)
+              citationBlocks.push(formatPentestCitations(pentestResults))
+              logForDebugging(`[pentest-kb] ${pentestResults.length} techniques from ${[...new Set(pentestResults.map(r => r.source))].join('+')}`)
+            }
+          }
+        }
+
         // Apply budget control and emit single system message
         if (citationBlocks.length > 0) {
           const trimmed = trimToBudget(citationBlocks)
