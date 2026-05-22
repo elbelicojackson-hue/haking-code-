@@ -156,9 +156,61 @@ Tauri 2 桌面应用，悬浮在屏幕顶部，一键启动/切换所有 AI codi
 
 专为网络安全研究员打造的终端 AI Agent，集成逆向工程、渗透测试、多模型对抗共识等能力。
 
-## 📋 更新日志（v1.1.0 → v1.2.0）
+## 📋 更新日志（v1.1.0 → v1.3.0）
 
 > 以下为 v1.0.1 之后的全部 commit 摘要，按时间倒序。
+
+### `659ca57` feat(pentest-kb): 补充2025-2026最新CVE(Linux+Windows在野利用)
+
+**Linux 2026 内核漏洞（CISA KEV 在野利用）：**
+- 🔴 **CopyFail** (CVE-2026-31431) — 9年老洞，732字节 exploit 即 root，影响所有 2017 后内核
+- 🔴 **Dirty Frag** — CopyFail 后继，页缓存腐败提权
+- 🔴 **Fragnesia** (CVE-2026-46300) — Dirty Frag 补丁引入的新 LPE
+- 🔴 **CVE-2026-46333** — 权限管理缺陷，Debian/Fedora/Ubuntu 默认受影响
+
+**Windows 2026 零日（活跃利用）：**
+- 🔴 **RedSun/UnDefend** (CVE-2026-41091/45498) — Microsoft Defender 零日
+- 🔴 **CVE-2026-42897** — Exchange Server 零日 XSS，无永久补丁
+- 🔴 **CVE-2026-21510/21513** — APT28 利用攻击乌克兰/EU
+- 🔴 **YellowKey/GreenPlasma** — Nightmare-Eclipse 披露的 Windows 零日
+
+---
+
+### `57f0547` feat(pentest-kb): 添加钓鱼/社工/C2/免杀知识库
+
+**新增 3 大知识库（全部本地即时查询，无网络延迟）：**
+
+| 知识库 | 条目数 | 覆盖内容 |
+|--------|--------|----------|
+| 🎣 Phishing/SE KB | 16 种 | evilginx、gophish、vishing、smishing、quishing、MFA bypass、pretexting、watering hole... |
+| 🏴‍☠️ C2/RedTeam KB | 12 个 | Sliver、Havoc、Mythic、Cobalt Strike、Metasploit、Empire、Brute Ratel、Ligolo-ng... |
+| 🛡️ Evasion KB | 12 种 | AMSI bypass、ETW patch、unhooking、direct syscalls、process hollowing、ScareCrow... |
+
+---
+
+### `10942d0` feat(pentest-kb): Linux提权知识库 - 内核漏洞+配置滥用+枚举工具
+
+- 15 个内核漏洞（DirtyPipe → CopyFail 全系列）
+- 13 种配置滥用（SUID/capabilities/cron/sudo/docker/lxd/NFS/PATH...）
+- 4 个枚举工具（LinPEAS/LinEnum/lse/pspy）
+
+---
+
+### `86ce698` feat: 渗透测试知识数据库 - 7大免费数据源全攻击链覆盖
+
+新增 `src/services/pentestKnowledgeDB.ts`：
+
+| 数据源 | 用途 | 费用 |
+|--------|------|------|
+| Shodan InternetDB | IP 侦察（端口/漏洞/CPE） | 免费 |
+| GTFOBins | Linux 提权/逃逸 | 免费 |
+| LOLBAS | Windows LOLBIN | 免费 |
+| WADComs | AD 域攻击命令 | 免费 |
+| PayloadsAllTheThings | 25+ Web 攻击 payload | 免费 |
+| Nuclei Templates | 漏洞检测模板 | 免费 |
+| HackTricks | 综合渗透方法论 | 免费 |
+
+---
 
 ### `25ea9fb` perf: 1M上下文优化 - citation去重+预算控制+单消息合并
 
