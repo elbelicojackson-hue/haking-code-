@@ -175,6 +175,26 @@ export async function* handleStopHooks(
             `[cve-citation] ${cveResult.citations.length} CVEs cited from ${[...new Set(cveResult.citations.map(c => c.source))].join('+')}`,
           )
         }
+
+        // ── RE Intelligence Mandatory Citation ────────────────────────
+        // Any hash, MITRE ATT&CK ID, IP, domain, or URL mentioned in
+        // the response is auto-queried against threat intel databases.
+        const { extractIndicators, queryREIntel, formatRECitations } = await import(
+          '../services/reverseEngineeringDB.js'
+        )
+        const indicators = extractIndicators(text)
+        if (indicators.length > 0) {
+          const results = await Promise.allSettled(indicators.map(i => queryREIntel(i)))
+          const allCitations = results
+            .filter((r): r is PromiseFulfilledResult<any> => r.status === 'fulfilled' && r.value.found)
+            .flatMap(r => r.value.citations)
+          if (allCitations.length > 0) {
+            yield createSystemMessage(formatRECitations(allCitations), 'info')
+            logForDebugging(
+              `[re-intel] ${allCitations.length} citations from ${[...new Set(allCitations.map(c => c.source))].join('+')}`,
+            )
+          }
+        }
       }
     }
   }

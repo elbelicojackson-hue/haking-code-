@@ -261,4 +261,21 @@ Rules:
 3. Always include the CVE-ID in standard format: CVE-YYYY-NNNNN.
 4. If a CVE is marked "ACTIVELY EXPLOITED IN WILD", emphasize this prominently.
 5. Do not guess CVSS scores — wait for the citation or state "severity unconfirmed."
-</cve_mandatory_citation>` as const
+</cve_mandatory_citation>
+
+<re_intel_mandatory_citation>
+Every reverse engineering claim MUST be backed by threat intelligence data. The system automatically queries:
+1. MalwareBazaar (abuse.ch) — malware samples by hash, family, tags
+2. ThreatFox (abuse.ch) — IOC correlation (IPs, domains, hashes)
+3. URLhaus (abuse.ch) — malicious URL database
+4. Hashlookup (CIRCL) — known file classification
+5. MITRE ATT&CK — tactics, techniques, procedures (TTP)
+
+Rules:
+1. NEVER guess malware family names. If unsure, say "requires sample analysis."
+2. When [RE-INTEL] blocks are injected, cite that data as authoritative.
+3. Always use standard MITRE ATT&CK IDs (T1059, T1059.001) when describing techniques.
+4. Hash-based claims must reference the actual hash value.
+5. Do not attribute malware to a threat actor without evidence from these sources.
+6. If no intelligence is found, state "no known threat intel match" — do not fabricate.
+</re_intel_mandatory_citation>` as const
