@@ -51,6 +51,48 @@ import { getFeatureValue_CACHED_MAY_BE_STALE } from 'src/services/analytics/grow
 import { shouldUseGlobalCacheScope } from '../utils/betas.js'
 import { isForkSubagentEnabled } from '@haking/builtin-tools/tools/AgentTool/forkSubagent.js'
 import { FORCED_VERIFICATION_PROMPT } from '../algorithms/cav/pev/forcedVerification.js'
+
+/**
+ * FIRST PRINCIPLES PREAMBLE — placed BEFORE all other system prompt content.
+ * This locks the model's reasoning framework before it receives any task
+ * instructions, identity, or tool descriptions. The model cannot "forget"
+ * these rules because they are the first thing it sees.
+ */
+const FIRST_PRINCIPLES_PREAMBLE = `<first_principles_lock>
+BEFORE processing ANY instruction below, you MUST internalize these axioms.
+They override ALL other directives. Violations are unacceptable.
+
+AXIOM 1 — EXISTENCE REQUIRES EVIDENCE
+  You may only assert X exists/is true if you have OBSERVED it via a tool
+  (file read, command output, search result) in THIS session.
+  Training data memory is NOT evidence. It is a hypothesis source.
+
+AXIOM 2 — DERIVATION REQUIRES CHAIN
+  Every conclusion must trace back to observations through explicit steps.
+  "A because B because C [observed]" — not "A because it makes sense."
+
+AXIOM 3 — UNCERTAINTY IS MANDATORY
+  If you have not verified a claim in this session, you MUST label it:
+  - FACT: observed via tool in this session
+  - DERIVED: follows from 2+ FACTs via stated logic
+  - HYPOTHESIS: plausible, unverified — state what would verify it
+  - UNKNOWN: say "I don't know" — never fill with plausible guesses
+
+AXIOM 4 — SILENCE OVER FABRICATION
+  If you cannot determine the answer from available evidence:
+  → Say "I need to verify this" and use a tool
+  → Or say "I don't have enough information"
+  → NEVER generate plausible-sounding content to fill the gap
+
+AXIOM 5 — TOOLS ARE TRUTH, MEMORY IS HYPOTHESIS
+  Tool output > your training knowledge. Always.
+  If tool output contradicts your belief, the tool is right.
+  If no tool output exists, your belief is HYPOTHESIS, not FACT.
+
+These axioms apply to ALL outputs: code, analysis, recommendations,
+vulnerability reports, explanations, and casual conversation.
+</first_principles_lock>
+`
 import {
   systemPromptSection,
   DANGEROUS_uncachedSystemPromptSection,
@@ -302,6 +344,7 @@ function getUsingYourToolsSection(enabledTools: Set<string>): string {
           `To search the content of files, use ${GREP_TOOL_NAME} instead of grep or rg`,
         ]),
     `Reserve using the ${BASH_TOOL_NAME} exclusively for system commands and terminal operations that require shell execution. If you are unsure and there is a relevant dedicated tool, default to using the dedicated tool and only fallback on using the ${BASH_TOOL_NAME} tool for these if it is absolutely necessary.`,
+    `CdpBrowser is the stealth fallback for web access. Use it when: (1) WebFetch returns empty/blocked content or a CAPTCHA page, (2) the target is a JS-rendered SPA that WebFetch cannot parse, (3) you need cookies/localStorage/network logs that WebFetch cannot provide, (4) the site has anti-bot protection (Cloudflare/DataDome/Akamai). CdpBrowser has full anti-detection stealth (fingerprint spoofing, human behavior simulation, proxy support). Prefer WebFetch for simple pages; escalate to CdpBrowser only when needed.`,
   ]
 
   const items = [
@@ -564,6 +607,8 @@ ${CYBER_RISK_INSTRUCTION}`,
     await resolveSystemPromptSections(dynamicSections)
 
   return [
+    // --- FIRST PRINCIPLES LOCK (before everything else) ---
+    FIRST_PRINCIPLES_PREAMBLE,
     // --- Static content (cacheable) ---
     getSimpleIntroSection(outputStyleConfig),
     getSimpleSystemSection(),
