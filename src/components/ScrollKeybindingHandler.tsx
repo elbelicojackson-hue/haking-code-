@@ -62,10 +62,12 @@ const WHEEL_ACCEL_MAX = 6
 // once a bounce confirms it's a mouse, the decay curve applies until an idle
 // gap or trackpad-flick-burst signals a possible device switch.
 const WHEEL_BOUNCE_GAP_MAX_MS = 200 // flip-back must arrive within this
-// Mouse is ~9 events/sec vs VS Code's ~30 — STEP is 3× xterm.js's 5 to
-// compensate. At gap=100ms (m≈0.63): one click gives 1+15*0.63≈10.5.
-const WHEEL_MODE_STEP = 15
-const WHEEL_MODE_CAP = 15
+// Mouse is ~9 events/sec vs VS Code's ~30 — STEP is 2× xterm.js's 5 to
+// compensate. At gap=100ms (m≈0.63): one click gives 1+8*0.63≈6.
+// Previously 15/15 which caused instant jump-to-top/bottom on Windows
+// Terminal where bounce detection triggers wheelMode too aggressively.
+const WHEEL_MODE_STEP = 8
+const WHEEL_MODE_CAP = 8
 // Max mult growth per event. Without this, the +STEP*m term jumps mult
 // from 1→10 in one event when wheelMode engages mid-scroll (bounce
 // detected after N events in trackpad mode at mult=1). User sees scroll
@@ -491,7 +493,9 @@ export function ScrollKeybindingHandler({
         // inside the centered Modal, where the paginated slice always fits).
         if (!s || s.getScrollHeight() <= s.getViewportHeight()) return false
         wheelAccel.current ??= initAndLogWheelAccel()
-        scrollUp(s, computeWheelStep(wheelAccel.current, -1, performance.now()))
+        const maxStep = Math.max(1, Math.floor(s.getViewportHeight() / 3))
+        const step = Math.min(computeWheelStep(wheelAccel.current, -1, performance.now()), maxStep)
+        scrollUp(s, step)
         onScroll?.(false, s)
       },
       'scroll:lineDown': () => {
@@ -499,7 +503,8 @@ export function ScrollKeybindingHandler({
         const s = scrollRef.current
         if (!s || s.getScrollHeight() <= s.getViewportHeight()) return false
         wheelAccel.current ??= initAndLogWheelAccel()
-        const step = computeWheelStep(wheelAccel.current, 1, performance.now())
+        const maxStep = Math.max(1, Math.floor(s.getViewportHeight() / 3))
+        const step = Math.min(computeWheelStep(wheelAccel.current, 1, performance.now()), maxStep)
         const reachedBottom = scrollDown(s, step)
         onScroll?.(reachedBottom, s)
       },
@@ -911,7 +916,16 @@ function scrollDown(s: ScrollBoxHandle, amount: number): boolean {
   // a batch of wheel events. Without this, wheeling to the bottom never
   // re-enables sticky scroll.
   const effectiveTop = s.getScrollTop() + s.getPendingDelta()
-  if (effectiveTop + amount >= max) {
+  const remaining = max - effectiveTop
+  if (remaining <= 0) {
+    s.scrollToBottom()
+    return true
+  }
+  if (amount >= remaining) {
+    // Near the bottom: scroll only the remaining distance instead of
+    // jumping to bottom. This prevents wheel acceleration from skipping
+    // the last few rows of content.
+    s.scrollBy(remaining)
     s.scrollToBottom()
     return true
   }
@@ -929,7 +943,13 @@ export function scrollUp(s: ScrollBoxHandle, amount: number): void {
   // Include pendingDelta: scrollBy accumulates without updating scrollTop,
   // so getScrollTop() alone is stale within a batch of wheel events.
   const effectiveTop = s.getScrollTop() + s.getPendingDelta()
-  if (effectiveTop - amount <= 0) {
+  if (effectiveTop <= 0) {
+    s.scrollTo(0)
+    return
+  }
+  if (amount >= effectiveTop) {
+    // Near the top: scroll only the remaining distance instead of jumping
+    // to 0. This prevents wheel acceleration from skipping content.
     s.scrollTo(0)
     return
   }
