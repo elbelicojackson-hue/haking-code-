@@ -160,6 +160,21 @@ export async function* handleStopHooks(
             `[forced-verification] triggered (score=${verification.score.toFixed(2)}, queries=${verification.queries.length})`,
           )
         }
+
+        // ── CVE Mandatory Citation ────────────────────────────────────
+        // Any CVE-ID mentioned in the response MUST be backed by an
+        // authoritative citation (NVD → CISA KEV → Firecrawl).
+        const { extractAndQueryCVEs, formatCveCitations } = await import(
+          '../services/cveDataSource.js'
+        )
+        const cveResult = await extractAndQueryCVEs(text)
+        if (cveResult.found) {
+          const cveBlock = formatCveCitations(cveResult.citations)
+          yield createSystemMessage(cveBlock, 'info')
+          logForDebugging(
+            `[cve-citation] ${cveResult.citations.length} CVEs cited from ${[...new Set(cveResult.citations.map(c => c.source))].join('+')}`,
+          )
+        }
       }
     }
   }
