@@ -22,6 +22,8 @@ const outputSchema = lazySchema(() =>
     oldTodos: TodoListSchema().describe('The todo list before the update'),
     newTodos: TodoListSchema().describe('The todo list after the update'),
     verificationNudgeNeeded: z.boolean().optional(),
+    hasInProgressViolation: z.boolean().optional(),
+    batchCompletionDetected: z.boolean().optional(),
   }),
 )
 type OutputSchema = ReturnType<typeof outputSchema>
@@ -69,10 +71,23 @@ export const TodoWriteTool = buildTool({
     const allDone = todos.every(_ => _.status === 'completed')
     const newTodos = allDone ? [] : todos
 
-    // Structural nudge: if the main-thread agent is closing out a 3+ item
-    // list and none of those items was a verification step, append a reminder
-    // to the tool result. Fires at the exact loop-exit moment where skips
-    // happen ("when the last task closed, the loop exited").
+    // ── Runtime validations (CC2.0 parity) ──────────────────────────────
+
+    // V1: Exactly one in_progress at a time
+    const inProgressCount = todos.filter(t => t.status === 'in_progress').length
+    const hasInProgressViolation = !allDone && inProgressCount !== 1
+
+    // V2: No batch completions — detect multiple tasks flipping to completed
+    // in a single call (should complete one at a time)
+    const prevPending = new Set(
+      oldTodos.filter(t => t.status !== 'completed').map(t => t.content),
+    )
+    const newlyCompleted = todos.filter(
+      t => t.status === 'completed' && prevPending.has(t.content),
+    )
+    const batchCompletionDetected = newlyCompleted.length > 1
+
+    // V3: Structural nudge for verification step
     let verificationNudgeNeeded = false
     if (
       feature('VERIFICATION_AGENT') &&
@@ -98,18 +113,39 @@ export const TodoWriteTool = buildTool({
         oldTodos,
         newTodos: todos,
         verificationNudgeNeeded,
+        hasInProgressViolation,
+        batchCompletionDetected,
       },
     }
   },
-  mapToolResultToToolResultBlockParam({ verificationNudgeNeeded }, toolUseID) {
-    const base = `Todos have been modified successfully. Ensure that you continue to use the todo list to track your progress. Please proceed with the current tasks if applicable`
-    const nudge = verificationNudgeNeeded
-      ? `\n\nNOTE: You just closed out 3+ tasks and none of them was a verification step. Before writing your final summary, spawn the verification agent (subagent_type="${VERIFICATION_AGENT_TYPE}"). You cannot self-assign PARTIAL by listing caveats in your summary \u2014 only the verifier issues a verdict.`
-      : ''
+  mapToolResultToToolResultBlockParam(
+    { verificationNudgeNeeded, hasInProgressViolation, batchCompletionDetected },
+    toolUseID,
+  ) {
+    const parts: string[] = [
+      'Todos have been modified successfully. Ensure that you continue to use the todo list to track your progress. Please proceed with the current tasks if applicable',
+    ]
+
+    if (hasInProgressViolation) {
+      parts.push(
+        '\n\n⚠️ VIOLATION: Exactly ONE task must be in_progress at all times (not zero, not multiple). Fix this immediately.',
+      )
+    }
+    if (batchCompletionDetected) {
+      parts.push(
+        '\n\n⚠️ WARNING: Multiple tasks were completed in a single update. Complete tasks ONE AT A TIME — mark each as completed immediately after finishing, before starting the next.',
+      )
+    }
+    if (verificationNudgeNeeded) {
+      parts.push(
+        `\n\nNOTE: You just closed out 3+ tasks and none of them was a verification step. Before writing your final summary, spawn the verification agent (subagent_type="${VERIFICATION_AGENT_TYPE}"). You cannot self-assign PARTIAL by listing caveats in your summary — only the verifier issues a verdict.`,
+      )
+    }
+
     return {
       tool_use_id: toolUseID,
       type: 'tool_result',
-      content: base + nudge,
+      content: parts.join(''),
     }
   },
 } satisfies ToolDef<InputSchema, Output>)

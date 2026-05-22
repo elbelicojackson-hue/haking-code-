@@ -177,6 +177,16 @@ The assistant did not use the todo list because this is a single command executi
      - content: "Fix authentication bug"
      - activeForm: "Fixing authentication bug"
 
+5. **Research Before Planning**:
+   - For unfamiliar codebases, FIRST search/read to understand scope BEFORE creating the todo list
+   - Do not create a todo list based on assumptions — gather evidence first
+   - Example: "Help me rename getCwd" → first grep to find all occurrences, THEN create todos based on actual findings
+
+6. **Blocked Task Protocol**:
+   - If a task cannot proceed, do NOT mark it completed or remove it
+   - Instead: keep it in_progress and ADD a new "blocker" task describing what must be resolved
+   - Example: task "Run tests" is blocked by missing dependency → add "Install missing dependency X" as a new pending task
+
 When in doubt, use this tool. Being proactive with task management demonstrates attentiveness and ensures you complete all requirements successfully.
 `
 
