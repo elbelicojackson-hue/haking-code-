@@ -140,30 +140,51 @@ Tauri 2 桌面应用，悬浮在屏幕顶部，一键启动/切换所有 AI codi
 
 > 以下为 v1.0.1 之后的全部 commit 摘要，按时间倒序。
 
+### `25ea9fb` perf: 1M上下文优化 - citation去重+预算控制+单消息合并
+
+针对 1M token 上下文窗口的优化策略：
+
+- **预算控制**：每轮 citation 注入上限 800 token（3200 字符），超出按优先级截断
+- **去重窗口**：3 轮内相同 CVE/hash/indicator 不重复注入
+- **单消息合并**：所有 citation（VERIFIED + CVE + RE-INTEL）合并为 1 条 system message
+- **可压缩标记**：旧 citation 可被 autocompact 安全丢弃，零保留优先级
+- 100 轮安全对话最坏 80k token（8%），实际有去重约 20k（2%）
+
+---
+
+### `2ea928d` fix: RE情报查证改为条件触发，避免误触发和上下文扰动
+
+- CVE 查证仅在文本包含 CVE-ID 时触发
+- RE 情报仅在安全相关上下文（含安全关键词）时触发
+- 过滤 MD5 长度 hex（可能是颜色值），只保留真实 indicator
+- 限制最多 5 个 indicator 查询
+
+---
+
+### `90ed7e4` feat: 逆向工程情报数据库 - 强制查证框架(全免费API)
+
+新增 `src/services/reverseEngineeringDB.ts`（5 大免费数据源）：
+
+- **MalwareBazaar**：恶意软件家族/壳/标签查询
+- **ThreatFox**：IOC 关联（IP/域名/哈希）
+- **URLhaus**：恶意 URL 数据库
+- **Hashlookup (CIRCL)**：已知文件分类
+- **MITRE ATT&CK**：TTP 战术技术知识库
+- 自动提取响应中的哈希/IP/域名/MITRE ID 并查证
+
+---
+
 ### `cce0d44` feat(cve): 添加CIRCL免费数据源作为首选(无需API key)
 
-CVE 查询优先级调整为：CIRCL (cve.circl.lu，完全免费无 key 无限速) → NVD → CISA KEV → Firecrawl。零配置即可用。
+CVE 查询优先级：CIRCL (完全免费无 key 无限速) → NVD → CISA KEV → Firecrawl。零配置即可用。
 
 ---
 
 ### `b48fe28` feat: CVE强制引用框架 - NVD/CISA KEV/Firecrawl三层数据源
 
-新增 `src/services/cveDataSource.ts`（CVE 强制引用框架）：
-
-- **三层数据源**：CIRCL → NVD API → CISA KEV → Firecrawl fallback
-- **自动检测**：AI 响应中提到任何 CVE-ID 自动触发查询
-- **强制引用**：系统 prompt `<cve_mandatory_citation>` 禁止编造 CVSS/描述
-- **在野利用标记**：CISA KEV 中的 CVE 自动标注 ⚠️ ACTIVELY EXPLOITED
-
 ---
 
 ### `d615bc2` feat(todo): 参考CC2.0强化运行时校验+prompt规则
-
-TodoWriteTool 优化（参考 Claude Code 2.0 设计）：
-
-- 运行时校验：in_progress 数量必须恰好 1 个，违反即警告
-- 批量完成检测：单次只能完成 1 个 task，违反即警告
-- 新增 prompt 规则：Research Before Planning、Blocked Task Protocol
 
 ---
 
