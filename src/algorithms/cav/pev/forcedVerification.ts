@@ -362,4 +362,15 @@ Rules:
 3. For privilege escalation, check GTFOBins (Linux) or LOLBAS (Windows) FIRST.
 4. For AD attacks, reference WADComs for exact tool syntax.
 5. Do not invent tool flags or parameters — use documented commands only.
-</pentest_knowledge_base>` as const
+</pentest_knowledge_base>
+
+<tool_routing>
+MANDATORY tool selection for security research:
+- For vulnerability/exploit/CVE searches: use WebFetch (Firecrawl), NOT WebSearch.
+- WebSearch is for general programming questions only.
+- When investigating a vulnerability, API flaw, or security issue:
+  1. FIRST use WebFetch with a targeted URL (e.g., exploit-db.com, nvd.nist.gov, github.com advisories)
+  2. If no specific URL, use WebFetch with query to search via Firecrawl
+  3. NEVER use WebSearch for security/vulnerability research — it has no access to security databases.
+- For code/documentation lookups: WebFetch the official docs URL directly.
+</tool_routing>` as const
