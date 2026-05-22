@@ -1,17 +1,16 @@
 /**
- * Firecrawl search adapter — replaces Bing/Brave as the default web search backend.
- * Free tier available, no rate limit issues, better security-focused results.
+ * Firecrawl search adapter (v2 API) — default web search backend.
+ * Docs: https://docs.firecrawl.dev
  */
 
 import type { WebSearchAdapter, SearchResult, SearchOptions } from './types.js'
 
-const FIRECRAWL_BASE = 'https://api.firecrawl.dev/v1'
+const FIRECRAWL_BASE = 'https://api.firecrawl.dev/v2'
 
 export class FirecrawlSearchAdapter implements WebSearchAdapter {
   async search(query: string, options: SearchOptions): Promise<SearchResult[]> {
     const apiKey = process.env.FIRECRAWL_API_KEY ?? ''
     if (!apiKey) {
-      // Fallback: return empty with a hint
       return [{ title: '[Firecrawl not configured]', url: '', snippet: 'Set FIRECRAWL_API_KEY to enable web search' }]
     }
 
@@ -24,10 +23,7 @@ export class FirecrawlSearchAdapter implements WebSearchAdapter {
           'Authorization': `Bearer ${apiKey}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          query,
-          limit: 8,
-        }),
+        body: JSON.stringify({ query, limit: 8 }),
         signal: options.signal,
       })
 
@@ -42,7 +38,6 @@ export class FirecrawlSearchAdapter implements WebSearchAdapter {
         snippet: (r.markdown ?? r.content ?? '').slice(0, 300),
       }))
 
-      // Apply domain filters
       let filtered = results
       if (options.allowedDomains?.length) {
         filtered = filtered.filter(r =>

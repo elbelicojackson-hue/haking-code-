@@ -1,7 +1,7 @@
 /**
  * Firecrawl — web search + scrape (external truth anchor for Arena/Recon)
  */
-const FIRECRAWL_BASE = 'https://api.firecrawl.dev/v1'
+const FIRECRAWL_BASE = 'https://api.firecrawl.dev/v2'
 
 function getApiKey(): string {
   return process.env.FIRECRAWL_API_KEY ?? ''
