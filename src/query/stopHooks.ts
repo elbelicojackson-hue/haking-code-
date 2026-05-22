@@ -164,35 +164,52 @@ export async function* handleStopHooks(
         // ── CVE Mandatory Citation ────────────────────────────────────
         // Any CVE-ID mentioned in the response MUST be backed by an
         // authoritative citation (NVD → CISA KEV → Firecrawl).
-        const { extractAndQueryCVEs, formatCveCitations } = await import(
+        // Only triggers when CVE-IDs are explicitly present.
+        const { extractAndQueryCVEs, formatCveCitations, CVE_PATTERN } = await import(
           '../services/cveDataSource.js'
         )
-        const cveResult = await extractAndQueryCVEs(text)
-        if (cveResult.found) {
-          const cveBlock = formatCveCitations(cveResult.citations)
-          yield createSystemMessage(cveBlock, 'info')
-          logForDebugging(
-            `[cve-citation] ${cveResult.citations.length} CVEs cited from ${[...new Set(cveResult.citations.map(c => c.source))].join('+')}`,
-          )
+        if (CVE_PATTERN.test(text)) {
+          CVE_PATTERN.lastIndex = 0
+          const cveResult = await extractAndQueryCVEs(text)
+          if (cveResult.found) {
+            const cveBlock = formatCveCitations(cveResult.citations)
+            yield createSystemMessage(cveBlock, 'info')
+            logForDebugging(
+              `[cve-citation] ${cveResult.citations.length} CVEs cited from ${[...new Set(cveResult.citations.map(c => c.source))].join('+')}`,
+            )
+          }
         }
 
         // ── RE Intelligence Mandatory Citation ────────────────────────
-        // Any hash, MITRE ATT&CK ID, IP, domain, or URL mentioned in
-        // the response is auto-queried against threat intel databases.
-        const { extractIndicators, queryREIntel, formatRECitations } = await import(
-          '../services/reverseEngineeringDB.js'
-        )
-        const indicators = extractIndicators(text)
-        if (indicators.length > 0) {
-          const results = await Promise.allSettled(indicators.map(i => queryREIntel(i)))
-          const allCitations = results
-            .filter((r): r is PromiseFulfilledResult<any> => r.status === 'fulfilled' && r.value.found)
-            .flatMap(r => r.value.citations)
-          if (allCitations.length > 0) {
-            yield createSystemMessage(formatRECitations(allCitations), 'info')
-            logForDebugging(
-              `[re-intel] ${allCitations.length} citations from ${[...new Set(allCitations.map(c => c.source))].join('+')}`,
-            )
+        // Only triggers in security-relevant context: must contain
+        // security keywords AND actual indicators (hashes/IPs/MITRE IDs).
+        // This prevents false positives on normal coding conversations.
+        const SECURITY_CONTEXT = /\b(malware|exploit|reverse.?engineer|payload|shellcode|c2|command.?and.?control|backdoor|trojan|ransomware|apt|threat|ioc|indicator|yara|sigma|detection|evasion|obfuscat|pack(?:er|ed)|upx|vmprotect|themida)\b/i
+        if (SECURITY_CONTEXT.test(text)) {
+          const { extractIndicators, queryREIntel, formatRECitations } = await import(
+            '../services/reverseEngineeringDB.js'
+          )
+          const indicators = extractIndicators(text)
+          // Only query if we found real indicators (not just hex color codes)
+          const realIndicators = indicators.filter(i =>
+            // SHA-256 (64 hex) or MITRE ID are always real
+            /^[a-f0-9]{64}$/i.test(i) || /^T\d{4}/i.test(i) ||
+            // SHA-1 (40 hex) only if in security context (already checked)
+            /^[a-f0-9]{40}$/i.test(i) ||
+            // IPs/domains/URLs are fine
+            /^https?:\/\//.test(i) || /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(i)
+          )
+          if (realIndicators.length > 0) {
+            const results = await Promise.allSettled(realIndicators.slice(0, 5).map(i => queryREIntel(i)))
+            const allCitations = results
+              .filter((r): r is PromiseFulfilledResult<any> => r.status === 'fulfilled' && r.value.found)
+              .flatMap(r => r.value.citations)
+            if (allCitations.length > 0) {
+              yield createSystemMessage(formatRECitations(allCitations), 'info')
+              logForDebugging(
+                `[re-intel] ${allCitations.length} citations from ${[...new Set(allCitations.map(c => c.source))].join('+')}`,
+              )
+            }
           }
         }
       }
