@@ -141,7 +141,7 @@ export function AssistantToolUseMessage({
     return null
   }
 
-  const renderedToolUseMessage = input.success
+  const renderedToolUseMessage = input?.success
     ? renderToolUseMessage(tool, input.data, { theme, verbose, commands })
     : null
   if (renderedToolUseMessage === null) {
