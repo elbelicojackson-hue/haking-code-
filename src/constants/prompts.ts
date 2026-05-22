@@ -50,6 +50,7 @@ import { feature } from 'bun:bundle'
 import { getFeatureValue_CACHED_MAY_BE_STALE } from 'src/services/analytics/growthbook.js'
 import { shouldUseGlobalCacheScope } from '../utils/betas.js'
 import { isForkSubagentEnabled } from '@haking/builtin-tools/tools/AgentTool/forkSubagent.js'
+import { FORCED_VERIFICATION_PROMPT } from '../algorithms/cav/pev/forcedVerification.js'
 import {
   systemPromptSection,
   DANGEROUS_uncachedSystemPromptSection,
@@ -556,6 +557,7 @@ ${CYBER_RISK_INSTRUCTION}`,
     ...(feature('KAIROS') || feature('KAIROS_BRIEF')
       ? [systemPromptSection('brief', () => getBriefSection())]
       : []),
+    systemPromptSection('forced_verification', () => FORCED_VERIFICATION_PROMPT),
   ]
 
   const resolvedDynamicSections =

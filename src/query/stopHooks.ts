@@ -56,6 +56,8 @@ import {
   createCacheSafeParams,
   saveCacheSafeParams,
 } from '../utils/forkedAgent.js'
+import { executeVerification } from '../algorithms/cav/pev/forcedVerification.js'
+import { getAssistantMessageText } from '../utils/messages.js'
 
 type StopHookResult = {
   blockingErrors: Message[]
@@ -137,6 +139,31 @@ export async function* handleStopHooks(
   const poorMode = feature('POOR')
     ? (await import('../commands/poor/poorMode.js')).isPoorModeActive()
     : false
+
+  // ── Forced Verification (PEV-driven) ─────────────────────────────────
+  // Scan the last assistant response for uncertainty signals. If triggered,
+  // inject Firecrawl evidence as a system attachment for the next turn.
+  if (!toolUseContext.agentId && !poorMode) {
+    const lastAssistant = assistantMessages[assistantMessages.length - 1]
+    if (lastAssistant) {
+      const text = getAssistantMessageText(lastAssistant)
+      if (text) {
+        const verification = await executeVerification(text)
+        if (verification.triggered && verification.evidence.length > 0) {
+          const evidenceBlock = [
+            '[VERIFIED — Firecrawl live documentation results]',
+            ...verification.evidence.map((e, i) => `[${i + 1}] ${e}`),
+            '[/VERIFIED]',
+          ].join('\n')
+          yield createSystemMessage(evidenceBlock, 'info')
+          logForDebugging(
+            `[forced-verification] triggered (score=${verification.score.toFixed(2)}, queries=${verification.queries.length})`,
+          )
+        }
+      }
+    }
+  }
+
   if (!isBareMode()) {
     // Inline env check for dead code elimination in external builds
     if (
