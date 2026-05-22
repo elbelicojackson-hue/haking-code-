@@ -19,8 +19,16 @@
 
 ### 🧠 强制思考 · 从不编造 · 每一句话都有据可查
 
+<h3><code style="color:red">🔒 第一性原理锁 — 5 条公理锁死推理框架，幻觉率压到最低</code></h3>
+
 </div>
 
+> <b style="color:red">🔴 NEW: 第一性原理推导引擎 — 存在需要证据 · 推导需要链条 · 沉默优于编造 · 工具是真理</b>
+>
+> <b style="color:red">🔴 NEW: VulnHunter 自主猎洞引擎 — 11 类漏洞模式 · 攻击面映射 · 假设生成 · 定向验证</b>
+>
+> <b style="color:red">🔴 NEW: 反致幻协议 — FACT/DERIVED/HYPOTHESIS/UNKNOWN 四级标注 · 零容忍编造</b>
+>
 > 🔴 **16 种钓鱼/社工手法** · 🔴 **12 个 C2 框架** · 🔴 **12 种 EDR 免杀技术** · 🔴 **25+ Web 攻击向量**
 >
 > 🟠 **70+ 安全工具集成** · 🟠 **MITRE ATT&CK 全战术覆盖** · 🟠 **SecLists 60k⭐ 字典库**
