@@ -678,6 +678,53 @@ bun run dev
 2. Base URL 缺少 `/anthropic` 后缀 → 改成 `https://api.deepseek.com/anthropic`
 3. 网络不通（国内直连 DeepSeek 无需代理）
 
+### 🔑 环境变量配置
+
+除了 `/setup` 交互式配置外，也可以通过 `.env` 文件或系统环境变量配置。在项目根目录创建 `.env` 文件：
+
+```env
+# ═══════════════ 必填 ═══════════════
+ANTHROPIC_API_KEY=sk-xxxxxxxxxxxxxxxx
+ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic
+
+# ═══════════════ 模型选择 ═══════════════
+ANTHROPIC_MODEL=deepseek-v4-pro
+ANTHROPIC_SMALL_FAST_MODEL=deepseek-v4-flash
+
+# ═══════════════ 可选功能 ═══════════════
+FIRECRAWL_API_KEY=fc-xxxxxxxxxxxxxxxx          # Wiki 爬虫 + 强制查证
+DEEPSEEK_PRO_FULL_PRICE=1                      # 计费面板显示 pro 原价（默认 2.5 折）
+CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000            # 最大输出 token（默认 64K）
+CLAUDE_CODE_SCROLL_SPEED=3                     # 滚轮速度倍率（默认 1）
+
+# ═══════════════ 高级 / 调试 ═══════════════
+ANTHROPIC_DISABLE_STREAMING=1                  # 禁用流式输出（调试用）
+CLAUDE_CODE_ENABLE_TELEMETRY=1                 # 启用遥测
+CLAUDE_CODE_DISABLE_AUTO_MEMORY=1              # 禁用自动记忆提取
+CLAUDE_CODE_SIMPLE=1                           # 极简模式（无侧边栏/附件）
+```
+
+**三种配置方式优先级**（高→低）：
+
+| 优先级 | 方式 | 说明 |
+|--------|------|------|
+| 1 | 系统环境变量 | `set ANTHROPIC_API_KEY=sk-xxx`（当前终端生效） |
+| 2 | `.env` 文件 | 项目根目录，git 不跟踪 |
+| 3 | `/setup` 配置 | 存储在 `~/.haking/config.json`，全局生效 |
+
+> ⚠️ **注意**：`.env` 文件包含密钥，**不要提交到 git**。已在 `.gitignore` 中排除。
+
+**Windows 设置环境变量**（永久生效）：
+```powershell
+# PowerShell（当前用户永久）
+[Environment]::SetEnvironmentVariable("ANTHROPIC_API_KEY", "sk-xxx", "User")
+[Environment]::SetEnvironmentVariable("ANTHROPIC_BASE_URL", "https://api.deepseek.com/anthropic", "User")
+
+# 或者 CMD（仅当前窗口）
+set ANTHROPIC_API_KEY=sk-xxx
+set ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic
+```
+
 ### 📖 所有命令一览
 
 启动后在输入框输入 `/` 开头的命令即可执行。以下是完整命令列表：
