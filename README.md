@@ -613,6 +613,81 @@ cd wiki && bun run dev
 
 ---
 
+
+## 🚨 使用声明 — 不按规矩来直接报废
+
+> **⚠️ 以下步骤缺一不可，跳过任何一步都会导致程序无法正常运行、DeepSeek 无响应、或功能残缺。**
+
+### ❌ 常见翻车原因
+
+| 你跳过了什么 | 后果 |
+|-------------|------|
+| 没装 Bun 或版本 < 1.2 | `bun install` 直接报错，依赖装不上 |
+| 没跑 `bun install` | 缺依赖，启动即崩 |
+| 没配 API Key | 所有 AI 功能静默失败，看起来像"没反应" |
+| Base URL 写错 | DeepSeek 返回 404/401，表现为"对话无响应" |
+| 用 `npm` / `yarn` 代替 `bun` | 构建脚本依赖 Bun 运行时特性，npm/yarn 跑不起来 |
+| 直接改 `dist/` 目录 | 下次 `bun run build` 全部覆盖，白改 |
+| 没有 `/setup` 就开始用 | 模型配置为空，请求发不出去 |
+| Windows 上用 Git Bash 跑 | 部分路径和进程管理不兼容，用 PowerShell 或 CMD |
+
+### ✅ 正确使用流程（必须按顺序）
+
+```bash
+# 1. 安装 Bun（必须 >= 1.2.0）
+# Windows:
+powershell -c "irm bun.sh/install.ps1 | iex"
+# macOS/Linux:
+curl -fsSL https://bun.sh/install | bash
+
+# 2. 克隆仓库
+git clone https://github.com/elbelicojackson-hue/haking-code-.git
+cd haking-code-
+
+# 3. 安装依赖（只能用 bun，不能用 npm/yarn）
+bun install
+
+# 4. 构建
+bun run build
+
+# 5. 启动
+bun run dev
+```
+
+```bash
+# 6. 首次启动后，在 REPL 中输入：
+/setup
+```
+
+在 `/setup` 中**必须配置**：
+
+| 配置项 | 必填 | 说明 |
+|--------|------|------|
+| API Key | ✅ | DeepSeek 的 `sk-xxx` 密钥 |
+| Base URL | ✅ | 必须是 `https://api.deepseek.com/anthropic`（注意结尾有 `/anthropic`） |
+| 主模型 | ✅ | `deepseek-v4-pro` 或 `deepseek-chat` |
+| 快速模型 | 可选 | `deepseek-v4-flash`（默认） |
+| Firecrawl Key | 可选 | 用于 Wiki 爬虫和强制查证，不配则跳过 |
+
+### ⚡ 验证是否正常
+
+启动后输入任意问题，如果看到 token 计费面板有数字跳动（`in X · out X`），说明配置正确。
+
+如果输入后**无任何响应**，99% 是以下原因：
+1. API Key 没配或配错 → 重新 `/setup`
+2. Base URL 缺少 `/anthropic` 后缀 → 改成 `https://api.deepseek.com/anthropic`
+3. 网络不通（国内直连 DeepSeek 无需代理）
+
+### 🔧 二次开发注意
+
+- 修改源码后必须 `bun run build` 重新构建，`dist/` 才会更新
+- 不要直接编辑 `dist/` 下的文件
+- 不要用 `npm run` / `yarn` 替代 `bun run`
+- PR 前跑一次 `bun run build` 确认构建通过
+
+---
+
+
 ## 快速开始
 
 ### 环境要求
