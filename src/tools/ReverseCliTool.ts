@@ -6,7 +6,7 @@
 import { execa } from 'execa'
 import { readFileSync } from 'fs'
 import { createHash as md5Hash } from 'crypto'
-import type { Tool } from '../../Tool.js'
+import { z } from 'zod/v4'
 
 /**
  * FuzzTag 解析器 — 参考 yakit Web Fuzzer 的标签语法
@@ -122,8 +122,23 @@ const PENTEST_TOOLS = [
   'steghide', 'stegcracker', 'binwalk',
 ] as const
 
-export const ReverseCliTool: Tool = {
+const inputSchema = z.object({
+  action: z.enum(ACTIONS).describe(`Operation to perform. One of: ${ACTIONS.join(', ')}.`),
+  targetPath: z.string().optional().describe('Path to target binary/file (for analyze, strings, dump, diec, upx, ghidra, ida, frida-unpack, shell-protect)'),
+  pentestTool: z.string().optional().describe(`Pentest sub-tool name when action="pentest". One of: ${PENTEST_TOOLS.join(', ')}`),
+  pentestArgs: z.string().optional().describe('CLI arguments for the pentest tool when action="pentest"'),
+  kaliCmd: z.string().optional().describe('Shell command to run when action="kali"'),
+  tsharkArgs: z.string().optional().describe('tshark arguments when action="tshark"'),
+  forensicUrl: z.string().optional().describe('URL to analyze when action="forensic"'),
+  cmd: z.string().optional().describe('Generic shell command when action="run"'),
+  template: z.string().optional().describe('FuzzTag template when action="fuzz", e.g. "id={{int(1-100)}}"'),
+})
+
+type ReverseCliInput = z.infer<typeof inputSchema>
+
+export const ReverseCliTool = {
   name: TOOL_NAME,
+  inputSchema,
   async description() {
     return `Reverse engineering and penetration testing toolbox. Actions: ${ACTIONS.join(', ')}. Pentest sub-tools: ${PENTEST_TOOLS.join(', ')}.`
   },
@@ -163,16 +178,16 @@ SecLists wordlists available at D:\\miserad\\SecLists\\ :
   },
   isEnabled() { return true },
   isReadOnly() { return false },
-  async validateInput(input: Record<string, unknown>) {
-    if (!input.action || !ACTIONS.includes(input.action as Action)) {
+  async validateInput(input: ReverseCliInput) {
+    if (!input.action || !ACTIONS.includes(input.action)) {
       return { valid: false, message: `action must be one of: ${ACTIONS.join(', ')}` }
     }
     return { valid: true }
   },
   userFacingName() { return 'Reverse CLI' },
-  async call(_toolUseId: string, input: Record<string, unknown>) {
-    const action = input.action as Action
-    const target = (input.targetPath as string) ?? ''
+  async call(input: ReverseCliInput) {
+    const action = input.action
+    const target = input.targetPath ?? ''
 
     try {
       let result: { stdout: string; stderr: string; exitCode: number }
@@ -194,39 +209,39 @@ SecLists wordlists available at D:\\miserad\\SecLists\\ :
           result = await execa('upx', ['-d', '-o', `${target}.unpacked`, target], { timeout: 60000, reject: false }) as any
           break
         case 'pentest': {
-          const tool = input.pentestTool as string
-          const args = (input.pentestArgs as string ?? '').split(/\s+/)
+          const tool = input.pentestTool ?? ''
+          const args = (input.pentestArgs ?? '').split(/\s+/).filter(Boolean)
           result = await execa(tool, args, { timeout: 120000, reject: false }) as any
           break
         }
         case 'kali': {
-          const cmd = input.kaliCmd as string ?? ''
+          const cmd = input.kaliCmd ?? ''
           result = await execa('bash', ['-c', cmd], { timeout: 60000, reject: false }) as any
           break
         }
         case 'tshark': {
-          const args = (input.tsharkArgs as string ?? '').split(/\s+/)
+          const args = (input.tsharkArgs ?? '').split(/\s+/).filter(Boolean)
           result = await execa('tshark', args, { timeout: 30000, reject: false }) as any
           break
         }
         case 'forensic': {
-          const url = input.forensicUrl as string ?? ''
+          const url = input.forensicUrl ?? ''
           result = await execa('curl', ['-sI', url], { timeout: 15000, reject: false }) as any
           break
         }
         case 'run': {
           // 通用：直接运行任意命令，支持所有安全工具
-          const cmd = input.cmd as string ?? ''
+          const cmd = input.cmd ?? ''
           result = await execa('bash', ['-c', cmd], { timeout: 120000, reject: false }) as any
           break
         }
         case 'fuzz': {
           // FuzzTag：生成测试payload（参考yakit Web Fuzzer语法）
-          const tpl = input.template as string ?? ''
+          const tpl = input.template ?? ''
           const payloads = expandFuzzTag(tpl)
           const preview = payloads.slice(0, 100) // 最多返回100条
           return {
-            output: `Generated ${payloads.length} payloads:\n${preview.join('\n')}${payloads.length > 100 ? `\n... (${payloads.length - 100} more)` : ''}`
+            data: `Generated ${payloads.length} payloads:\n${preview.join('\n')}${payloads.length > 100 ? `\n... (${payloads.length - 100} more)` : ''}`
           }
         }
         default:
@@ -234,9 +249,9 @@ SecLists wordlists available at D:\\miserad\\SecLists\\ :
       }
 
       const output = (result.stdout || '') + (result.stderr ? `\n[stderr] ${result.stderr}` : '')
-      return { output: output.slice(0, 4000) || `[exit ${result.exitCode}]` }
+      return { data: output.slice(0, 4000) || `[exit ${result.exitCode}]` }
     } catch (err) {
-      return { output: `Error: ${err instanceof Error ? err.message : String(err)}` }
+      return { data: `Error: ${err instanceof Error ? err.message : String(err)}` }
     }
   },
 }

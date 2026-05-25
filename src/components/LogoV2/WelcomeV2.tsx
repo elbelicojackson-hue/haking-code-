@@ -4,22 +4,22 @@ import { Box, Text } from '@anthropic/ink';
 export function WelcomeV2(): React.ReactNode {
   return (
     <Box flexDirection="column" paddingX={2} paddingY={1}>
-      <Text bold color="cyan">
+      <Text bold color="ansi:cyan">
         {'  _   _       _    _             '}
       </Text>
-      <Text bold color="cyan">
+      <Text bold color="ansi:cyan">
         {' | | | | __ _| | _(_)_ __   __ _ '}
       </Text>
-      <Text bold color="cyan">
+      <Text bold color="ansi:cyan">
         {" | |_| |/ _` | |/ / | '_ \\ / _` |"}
       </Text>
-      <Text bold color="cyan">
+      <Text bold color="ansi:cyan">
         {' |  _  | (_| |   <| | | | | (_| |'}
       </Text>
-      <Text bold color="cyan">
+      <Text bold color="ansi:cyan">
         {' |_| |_|\\__,_|_|\\_\\_|_| |_|\\__, |'}
       </Text>
-      <Text bold color="cyan">
+      <Text bold color="ansi:cyan">
         {'                           |___/ '}
       </Text>
       <Box marginTop={1}>

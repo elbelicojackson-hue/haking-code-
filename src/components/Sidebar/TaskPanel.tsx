@@ -20,7 +20,7 @@ export const TaskPanel = memo(function TaskPanel(): React.ReactNode {
         ) : (
           tasks.slice(0, 8).map(task => (
             <Text key={task.id} wrap="truncate-end">
-              <Text color={task.status === 'completed' ? 'green' : task.status === 'in_progress' ? 'yellow' : undefined}>
+              <Text color={task.status === 'completed' ? 'ansi:green' : task.status === 'in_progress' ? 'ansi:yellow' : undefined}>
                 {STATUS_ICON[task.status] ?? '☐'}
               </Text>
               {' '}

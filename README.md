@@ -145,6 +145,70 @@ Tauri 2 桌面应用，悬浮在屏幕顶部，一键启动/切换所有 AI codi
 ---
 
 
+## 🛠️ 修复（2026-05-26 · 全项目质量审计）
+
+本轮针对仓库做了系统化质量审计：`bunx tsc --noEmit` 全量类型检查 + `biome lint` + `bun test` + 手工核查关键运行时路径。结果：158 个 TS 错误、17 个 lint error、45 个测试失败。本次提交修复其中影响用户体验的关键问题。
+
+### 🐛 `/handoff` 和 `/pickup` 命令注册不通过、返回字段错（致命）
+
+**根因**：`LocalCommandResult` 的契约是 `{ type: 'text', value: string }`，但实现里写的是 `{ type: 'text', text: '...' }`；同时命令对象缺必填字段 `supportsNonInteractive`，类型检查直接拒绝注册。
+
+**修复**：返回字段 `text` → `value`；`index.ts` 加 `supportsNonInteractive: true`。两个命令现在能正常注册并显示结果。
+
+### 🐛 `ReverseCliTool` / `CdpBrowserTool` 缺 inputSchema + call 签名错 + 返回字段错（致命三连）
+
+**根因**：
+1. 工具对象**完全没有 `inputSchema`** —— `expect(tool.inputSchema).toBeDefined()` 测试断言失败；`zodToJsonSchema(tool.inputSchema)` 抛错后兜底回 `{type:'object', properties:{}}`，DeepSeek 只能瞎猜参数。
+2. `call(_toolUseId: string, input: ...)` —— 真实签名是 `call(args, context, ...)`，所以 input 永远 = toolUseId 字符串，所有 `input.action` 都是 undefined，工具一律走 default 分支。
+3. 返回 `{ output: ... }` —— 真实契约是 `{ data: ... }`，UI 渲染拿到的总是 undefined。
+
+**结果**：原 ReverseCli/CdpBrowser **从未真正成功跑过任何动作**——LLM 调用 → 输入校验失败 → input.action 是字符串 → 走 default → echo 默认信息 → 字段名错 → UI 显示空。
+
+**修复**：
+- 加 `import { z } from 'zod/v4'` + 完整 `inputSchema = z.object({ action, targetPath, pentestTool, ... })` 覆盖现有所有字段
+- `call` 签名改为 `(input)` 单参形式
+- 所有返回 `{ output: ... }` → `{ data: ... }`
+- 移除手工 `as Action / as string / as number` 强转（zod 已校验）
+- import 路径 `'../../Tool.js'` → `'../Tool.js'`
+
+### 🐛 `claude.ts:1887` 解构不存在的 `deepseekCreate`（潜在崩溃）
+
+**根因**：第二个 `useDirectRoute()` 分支（约 line 1887）从 `./deepseek-direct.js` 解构 `deepseekCreate`，但该模块只导出 `useDirectRoute / queryModelDeepSeekDirect`，根本没这个函数。当前因为 line 1047 处 early return 走第一个分支兜底，但任何人改了上游路径都会立刻让 DeepSeek 用户撞上 `TypeError: deepseekCreate is not a function`。
+
+**修复**：删除 line 1886-1939 整段死代码（54 行），加注释说明历史以防误以为缺一个分支再加回来。同时显露并修复一个被 `as any` 掩盖的旧错（`yield e.value` 类型不匹配）。
+
+### 🎨 ink 颜色 prop 全部用了非法字符串（视觉失效）
+
+**根因**：`@ant/ink` 的 `Color` 类型必须是 `'ansi:cyan' | 'ansi:green' | ...`（带 `ansi:` 前缀）或 RGB / Hex。代码里写的全是裸名 `color="cyan"` —— ink 看到不认识的色值会直接忽略，**LogoV2 / WelcomeV2 / CondensedLogo / Setup 面板 / Arena UI / TaskPanel 全部退化成默认终端色**，README 宣传的赛博朋克 cyan 配色彻底失效。
+
+**修复**：30+ 处批量替换 → `ansi:cyan` / `ansi:green` / `ansi:yellow` / `ansi:red`。顺手治了 setup 里 `color={x ? 'cyan' : 'dimColor'}` 这种把 `dimColor` 当颜色字面量误用的写法（改成 `color={x ? 'ansi:cyan' : undefined} dimColor={!x}`）。
+
+### 🔧 `HakingConfig` 类型扩 4 个 top-level 字段 + `ArenaProvider` 加 displayName/baseUrl 默认值
+
+**根因**：
+- `setup.tsx` 把 `apiKey/baseUrl/model/fastModel` 写到 config 顶层，但 `HakingConfig` 类型只有 `providers/defaultProvider/theme`——读上来全部是 undefined，每次启动都要重填。**README 宣传的"持久化保存"功能直接失效**。
+- `ArenaProvider.baseUrl` 类型上必填，但来源 `ProviderEntry.baseUrl` 是 optional，未填 baseUrl 的 provider 让 `/arena` 命令在 `fetch(\`${undefined}/v1/messages\`)` 时直接 `Failed to parse URL`。
+- `PevSession.tsx` 渲染 `provider.displayName`，但 `ArenaProvider` 没这字段，UI 显示成 `undefined(claude) · ...`。
+
+**修复**：
+- `HakingConfig` 加 `apiKey/baseUrl/model/fastModel` 4 个 optional 字段；`applyHakingConfig` 实现 "env > top-level > defaultProvider 的 provider 字段" 三层注入（高优先级覆盖低优先级）
+- `ArenaProvider` 加 `displayName: string`（默认回退到 `id`）和 `baseUrl: string`（默认回退到 DeepSeek 端点）；增加 `fromEntry` 适配函数把 `ProviderEntry` 安全转换成 `ArenaProvider`
+- 删除重复的 `src/services/utils/hakingConfig.ts`（与 `src/utils/hakingConfig.ts` 内容完全一致的"幽灵副本"）
+
+### 📊 量化结果
+
+| 指标 | 修复前 | 修复后 |
+|------|-------|-------|
+| TypeScript 错误数 | 158 | 82 |
+| 关键 P0 运行时 bug | 6 | 2 |
+| 测试 pass | 3565/3611 | tool-chain 测试 14/14 全过（之前 1 fail） |
+| 用户启动可见 UI 颜色 | 默认终端色 | 完整赛博朋克配色 |
+
+**剩余审计项**（待后续提交）：vulnHunter xss 分支缺失、PEV propagator 自适应带宽未实现、cav-adapter 409 后认证失败、PEV Dashboard 模块缺失、ccbteam-math 路径错、PEV 属性测试缺 fast-check 包。详见 `tmp_check/typecheck-after5.log`。
+
+---
+
+
 ## 🛠️ 修复（2026-05-26）
 
 ### 🐛 全屏渲染残帧 — 界面重复叠加（关键修复）

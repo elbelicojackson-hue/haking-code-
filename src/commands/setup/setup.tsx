@@ -135,7 +135,7 @@ function SetupPanel({ onDone }: { onDone: (msg: string, opts?: any) => void }): 
   if (screen === 'done') {
     return (
       <Box paddingX={2} paddingY={1}>
-        <Text color="green" bold>✓ 配置已保存！下次启动自动生效。</Text>
+        <Text color="ansi:green" bold>✓ 配置已保存！下次启动自动生效。</Text>
       </Box>
     );
   }
@@ -144,10 +144,10 @@ function SetupPanel({ onDone }: { onDone: (msg: string, opts?: any) => void }): 
     const labels = ['Agent ID (如 gpt-agent)', 'API Key', 'Base URL', 'Model'];
     return (
       <Box flexDirection="column" paddingX={2} paddingY={1}>
-        <Text bold color="cyan">➕ 添加 Recon Provider ({addStep + 1}/4)</Text>
+        <Text bold color="ansi:cyan">➕ 添加 Recon Provider ({addStep + 1}/4)</Text>
         <Box marginTop={1}>
           <Text>{labels[addStep]}: </Text>
-          <Text color="yellow">{editBuf}█</Text>
+          <Text color="ansi:yellow">{editBuf}█</Text>
         </Box>
         <Text dimColor>Enter 确认 · Esc 取消</Text>
       </Box>
@@ -158,7 +158,7 @@ function SetupPanel({ onDone }: { onDone: (msg: string, opts?: any) => void }): 
     return (
       <Box flexDirection="column" paddingX={2} paddingY={1}>
         <Text bold>编辑 {editTarget}:</Text>
-        <Text color="yellow">{editBuf}█</Text>
+        <Text color="ansi:yellow">{editBuf}█</Text>
         <Text dimColor>Enter 确认 · Esc 取消</Text>
       </Box>
     );
@@ -168,20 +168,26 @@ function SetupPanel({ onDone }: { onDone: (msg: string, opts?: any) => void }): 
     const provs = config.providers ?? [];
     return (
       <Box flexDirection="column" paddingX={2} paddingY={1}>
-        <Text bold color="cyan">🔗 Recon Providers（多 LLM 对抗分析）</Text>
+        <Text bold color="ansi:cyan">🔗 Recon Providers（多 LLM 对抗分析）</Text>
         <Text dimColor>  PEV 引擎用多个不同 LLM 同时分析目标，提高准确率</Text>
         <Box flexDirection="column" marginTop={1}>
           {provs.map((p, i) => (
-            <Text key={i} color={cursor === i ? 'cyan' : undefined}>
+            <Text key={i} color={cursor === i ? 'ansi:cyan' : undefined}>
               {cursor === i ? '▸ ' : '  '}
-              {p.id} → {p.model} ({p.baseUrl.replace('https://', '').slice(0, 20)})
+              {p.id} → {p.model} ({(p.baseUrl ?? '').replace('https://', '').slice(0, 20)})
               {cursor === i ? ' [Enter 删除]' : ''}
             </Text>
           ))}
-          <Text color={cursor === provs.length ? 'green' : 'dimColor'}>
+          <Text
+            color={cursor === provs.length ? 'ansi:green' : undefined}
+            dimColor={cursor !== provs.length}
+          >
             {cursor === provs.length ? '▸ ' : '  '}[+ 添加 Provider]
           </Text>
-          <Text color={cursor === provs.length + 1 ? 'cyan' : 'dimColor'}>
+          <Text
+            color={cursor === provs.length + 1 ? 'ansi:cyan' : undefined}
+            dimColor={cursor !== provs.length + 1}
+          >
             {cursor === provs.length + 1 ? '▸ ' : '  '}← 返回
           </Text>
         </Box>
@@ -200,12 +206,12 @@ function SetupPanel({ onDone }: { onDone: (msg: string, opts?: any) => void }): 
   // Main screen
   return (
     <Box flexDirection="column" paddingX={2} paddingY={1}>
-      <Text bold color="cyan">⚙ Haking Code 配置</Text>
+      <Text bold color="ansi:cyan">⚙ Haking Code 配置</Text>
       <Text dimColor>  ~/.haking/config.json · 下次启动自动加载</Text>
       <Box flexDirection="column" marginTop={1}>
         {mainItems.map((item, i) => (
           <Box key={item.key}>
-            <Text color={cursor === i ? 'cyan' : undefined}>
+            <Text color={cursor === i ? 'ansi:cyan' : undefined}>
               {cursor === i ? '▸ ' : '  '}{item.label}:{' '}
             </Text>
             <Text dimColor={!item.value || item.value.includes('未设置')}>

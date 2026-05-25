@@ -10,11 +10,11 @@ export const call: LocalCommandCall = async (_args, _context) => {
   if (!existsSync(latestPath)) {
     // 尝试找最新的 handoff 文件
     if (!existsSync(HANDOFF_DIR)) {
-      return { type: 'text' as const, text: '没有找到任何 handoff 记录。先用 /handoff 保存一个会话。' }
+      return { type: 'text' as const, value: '没有找到任何 handoff 记录。先用 /handoff 保存一个会话。' }
     }
     const files = readdirSync(HANDOFF_DIR).filter(f => f.startsWith('handoff-') && f.endsWith('.json')).sort().reverse()
     if (files.length === 0) {
-      return { type: 'text' as const, text: '没有找到任何 handoff 记录。先用 /handoff 保存一个会话。' }
+      return { type: 'text' as const, value: '没有找到任何 handoff 记录。先用 /handoff 保存一个会话。' }
     }
   }
 
@@ -50,5 +50,5 @@ export const call: LocalCommandCall = async (_args, _context) => {
 
   lines.push(`(原会话共 ${data.messageCount} 条消息)`)
 
-  return { type: 'text' as const, text: lines.join('\n') }
+  return { type: 'text' as const, value: lines.join('\n') }
 }

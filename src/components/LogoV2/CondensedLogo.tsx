@@ -8,7 +8,7 @@ export function CondensedLogo(): React.ReactNode {
   return (
     <Box paddingX={2} paddingY={0}>
       <Text>
-        <Text bold color="cyan">Haking</Text>
+        <Text bold color="ansi:cyan">Haking</Text>
         <Text dimColor> v{MACRO.VERSION} · {cwd}</Text>
       </Text>
     </Box>

@@ -9,22 +9,22 @@ export function LogoV2(): React.ReactNode {
 
   return (
     <Box flexDirection="column" paddingX={2} paddingY={1} width={Math.min(columns, 70)}>
-      <Text bold color="cyan">
+      <Text bold color="ansi:cyan">
         {'  _   _       _    _             '}
       </Text>
-      <Text bold color="cyan">
+      <Text bold color="ansi:cyan">
         {' | | | | __ _| | _(_)_ __   __ _ '}
       </Text>
-      <Text bold color="cyan">
+      <Text bold color="ansi:cyan">
         {" | |_| |/ _` | |/ / | '_ \\ / _` |"}
       </Text>
-      <Text bold color="cyan">
+      <Text bold color="ansi:cyan">
         {' |  _  | (_| |   <| | | | | (_| |'}
       </Text>
-      <Text bold color="cyan">
+      <Text bold color="ansi:cyan">
         {' |_| |_|\\__,_|_|\\_\\_|_| |_|\\__, |'}
       </Text>
-      <Text bold color="cyan">
+      <Text bold color="ansi:cyan">
         {'                           |___/ '}
       </Text>
       <Box marginTop={1} flexDirection="column">

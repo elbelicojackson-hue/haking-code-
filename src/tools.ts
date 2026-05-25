@@ -143,6 +143,7 @@ import { isPowerShellToolEnabled } from './utils/shell/shellToolUtils.js'
 import { isAgentSwarmsEnabled } from './utils/agentSwarmsEnabled.js'
 import { isWorktreeModeEnabled } from './utils/worktreeModeEnabled.js'
 import { ReverseCliTool } from './tools/ReverseCliTool.js'
+import { CdpBrowserTool } from './tools/CdpBrowserTool.js'
 import {
   REPL_TOOL_NAME,
   REPL_ONLY_TOOLS,
@@ -213,6 +214,7 @@ export function getAllBaseTools(): Tools {
     TaskStopTool,
     AskUserQuestionTool,
     ReverseCliTool,
+    CdpBrowserTool,
     SkillTool,
     EnterPlanModeTool,
     ...(process.env.USER_TYPE === 'ant' ? [ConfigTool] : []),

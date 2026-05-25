@@ -21,7 +21,7 @@ export const call: LocalCommandCall = async (args, context) => {
 
   return {
     type: 'text' as const,
-    text: `✓ 会话已保存到 ${filename}\n` +
+    value: `✓ 会话已保存到 ${filename}\n` +
       `  任务数: ${summary.tasks.length}\n` +
       `  上下文: ${summary.context.length} 条关键信息\n` +
       `  备注: ${summary.notes || '(无)'}\n\n` +

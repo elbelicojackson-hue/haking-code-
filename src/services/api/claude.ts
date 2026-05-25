@@ -1882,54 +1882,10 @@ async function* queryModel(
         // Use raw stream instead of BetaMessageStream to avoid O(n²) partial JSON parsing
         // BetaMessageStream calls partialParse() on every input_json_delta, which we don't need
         // since we handle tool input accumulation ourselves
-        // biome-ignore lint/plugin: main conversation loop handles attribution separately
-        // DeepSeek direct route — bypass SDK Zod validation entirely
-        const { useDirectRoute, deepseekCreate } = await import('./deepseek-direct.js')
-        if (useDirectRoute()) {
-          const directResult = await deepseekCreate({
-            model: params.model,
-            messages: params.messages as any,
-            system: typeof params.system === 'string' ? params.system : Array.isArray(params.system) ? params.system.map((s: any) => s.text || '').join('\n') : undefined,
-            max_tokens: params.max_tokens,
-            temperature: (params as any).temperature,
-            tools: params.tools as any,
-            signal,
-          })
-          queryCheckpoint('query_response_headers_received')
-          streamRequestId = directResult.id
-          // Return as a fake stream that yields events then the final message
-          const fakeMessage = {
-            id: directResult.id,
-            type: 'message',
-            role: 'assistant',
-            model: directResult.model,
-            content: directResult.content,
-            stop_reason: directResult.stop_reason || 'end_turn',
-            stop_sequence: null,
-            usage: directResult.usage,
-          }
-          // Create an async iterable that mimics BetaMessageStream
-          return {
-            [Symbol.asyncIterator]: async function*() {
-              for (const block of directResult.content) {
-                if (block.type === 'thinking') {
-                  yield { type: 'content_block_start', index: 0, content_block: { type: 'thinking', thinking: '' } }
-                  yield { type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking: (block as any).thinking } }
-                  yield { type: 'content_block_stop', index: 0 }
-                } else if (block.type === 'text') {
-                  yield { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } }
-                  yield { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: (block as any).text } }
-                  yield { type: 'content_block_stop', index: 0 }
-                }
-              }
-              yield { type: 'message_delta', delta: { stop_reason: directResult.stop_reason || 'end_turn' }, usage: directResult.usage }
-              yield { type: 'message_stop' }
-            },
-            finalMessage: async () => fakeMessage,
-            get controller() { return { signal } },
-          } as any
-        }
-
+        // (DeepSeek direct route is handled at the top of queryModel via an early
+        // yield* + return on `useDirectRoute()` — see ~line 1047. The branch that
+        // used to live here was dead code referencing a non-existent
+        // `deepseekCreate` symbol; removed to prevent accidental re-introduction.)
         const result = await anthropic.beta.messages
           .create(
             { ...params, stream: !process.env.ANTHROPIC_DISABLE_STREAMING },
@@ -1962,7 +1918,12 @@ async function* queryModel(
 
       // yield API error messages (the stream has a 'controller' property, error messages don't)
       if (!('controller' in e.value)) {
-        yield e.value
+        // The non-controller branch of T (BetaMessage) only fires on the
+        // non-streaming SDK path, which queryModelWithoutStreaming uses
+        // separately — here `result.data` is always a Stream, so any value
+        // without `controller` is an error message in our generator's
+        // yielded union. Cast keeps that invariant explicit for TS.
+        yield e.value as SystemAPIErrorMessage
       }
     } while (!e.done)
     stream = e.value as Stream<BetaRawMessageStreamEvent>

@@ -120,7 +120,7 @@ ${chain.id === 'C4' ? '综合各方论点，标注共识和分歧，判断是否
 
   return (
     <Box flexDirection="column" paddingX={1} paddingY={1}>
-      <Text bold color="cyan">⚔ Arena — 4 链对抗共识</Text>
+      <Text bold color="ansi:cyan">⚔ Arena — 4 链对抗共识</Text>
       <Text dimColor>  {claim}</Text>
       <Text dimColor>  C1 Proposer · C2 Challenger · C3 Verifier · C4 Synthesizer</Text>
 
@@ -139,18 +139,18 @@ ${chain.id === 'C4' ? '综合各方论点，标注共识和分歧，判断是否
       ))}
 
       {status === 'running' && currentChain && (
-        <Box marginTop={1}><Text color="yellow">⏳ {currentChain}...</Text></Box>
+        <Box marginTop={1}><Text color="ansi:yellow">⏳ {currentChain}...</Text></Box>
       )}
 
       {status === 'done' && (
         <Box flexDirection="column" marginTop={1} borderStyle="single" paddingX={1}>
-          <Text bold color="green">✓ Consensus</Text>
+          <Text bold color="ansi:green">✓ Consensus</Text>
           <Text wrap="wrap">{consensus}</Text>
         </Box>
       )}
 
       {status === 'error' && (
-        <Box marginTop={1}><Text color="red">{consensus}</Text></Box>
+        <Box marginTop={1}><Text color="ansi:red">{consensus}</Text></Box>
       )}
     </Box>
   );
