@@ -681,6 +681,27 @@ bun run dev
 | 快速模型 | 可选 | `deepseek-v4-flash`（默认） |
 | Firecrawl Key | 可选 | 用于 Wiki 爬虫和强制查证，不配则跳过 |
 
+### 🤖 `/model` 模型映射说明
+
+输入 `/model` 切换模型时，可以用**别名**或**完整模型名**。以下是映射关系：
+
+| 别名 | 实际调用的 DeepSeek 模型 | 说明 |
+|------|------------------------|------|
+| `sonnet` | `deepseek-v4-flash` | 快速模型，适合日常对话、简单任务 |
+| `haiku` | `deepseek-v4-flash` | 同上，最轻量 |
+| `opus` | `deepseek-v4-pro` | 最强模型，适合复杂推理、代码生成 |
+| `best` | `deepseek-v4-pro` | 同 opus，自动选最强 |
+
+**可直接填写的 DeepSeek 模型名**：
+
+| 模型名 | 特点 | 适用场景 |
+|--------|------|----------|
+| `deepseek-v4-pro` | 最强推理，输出上限 384K | 复杂渗透分析、代码审计、/arena 辩论 |
+| `deepseek-v4-flash` | 快速便宜，输出上限 64K | 日常问答、快速扫描、/recon 工具调度 |
+| `deepseek-chat` | V3 兼容模型 | 预算有限时的备选 |
+
+> 💡 **推荐配置**：主模型用 `deepseek-v4-pro`，快速模型用 `deepseek-v4-flash`。这样 `/arena` 和复杂任务走 pro，工具调用和快速回复走 flash，兼顾质量和成本。
+
 ### ⚡ 验证是否正常
 
 启动后输入任意问题，如果看到 token 计费面板有数字跳动（`in X · out X`），说明配置正确。
