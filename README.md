@@ -696,12 +696,6 @@ FIRECRAWL_API_KEY=fc-xxxxxxxxxxxxxxxx          # Wiki 爬虫 + 强制查证
 DEEPSEEK_PRO_FULL_PRICE=1                      # 计费面板显示 pro 原价（默认 2.5 折）
 CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000            # 最大输出 token（默认 64K）
 CLAUDE_CODE_SCROLL_SPEED=3                     # 滚轮速度倍率（默认 1）
-
-# ═══════════════ 高级 / 调试 ═══════════════
-ANTHROPIC_DISABLE_STREAMING=1                  # 禁用流式输出（调试用）
-CLAUDE_CODE_ENABLE_TELEMETRY=1                 # 启用遥测
-CLAUDE_CODE_DISABLE_AUTO_MEMORY=1              # 禁用自动记忆提取
-CLAUDE_CODE_SIMPLE=1                           # 极简模式（无侧边栏/附件）
 ```
 
 **三种配置方式优先级**（高→低）：
