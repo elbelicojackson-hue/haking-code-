@@ -61,7 +61,9 @@ const WHEEL_ACCEL_MAX = 6
 // threshold needed, large gaps just have m≈0 → mult→1. Wheel mode is STICKY:
 // once a bounce confirms it's a mouse, the decay curve applies until an idle
 // gap or trackpad-flick-burst signals a possible device switch.
-const WHEEL_BOUNCE_GAP_MAX_MS = 200 // flip-back must arrive within this
+// Windows Terminal sends irregular event timing that triggers false bounces
+// at 200ms — tighten to 80ms where only real encoder bounces land.
+const WHEEL_BOUNCE_GAP_MAX_MS = process.env.WT_SESSION ? 80 : 200
 // Mouse is ~9 events/sec vs VS Code's ~30 — STEP is 2× xterm.js's 5 to
 // compensate. At gap=100ms (m≈0.63): one click gives 1+8*0.63≈6.
 // Previously 15/15 which caused instant jump-to-top/bottom on Windows

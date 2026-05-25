@@ -1050,7 +1050,14 @@ async function* queryModel(
     // metadata, ensure tool_result pairing, remove orphaned blocks. Without
     // this, multi-turn tool-use conversations send malformed history to
     // DeepSeek and get 400 or empty responses.
-    const normalized = ensureToolResultPairing(normalizeMessagesForAPI(messages, tools))
+    let normalized = ensureToolResultPairing(normalizeMessagesForAPI(messages, tools))
+    // Strip fields/blocks that DeepSeek's /anthropic compat endpoint doesn't
+    // recognize — same cleanup the SDK path does after ensureToolResultPairing.
+    normalized = stripAdvisorBlocks(
+      normalized.map(msg =>
+        msg.type === 'assistant' ? stripCallerFieldFromAssistantMessage(msg) : msg,
+      ),
+    )
     yield* queryModelDeepSeekDirect(normalized, systemPrompt, thinkingConfig, tools, signal, options)
     return
   }

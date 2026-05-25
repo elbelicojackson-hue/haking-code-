@@ -179,6 +179,27 @@ function extractMessageContent(m: any): unknown {
   return ''
 }
 
+// Block types DeepSeek's /anthropic endpoint doesn't understand
+const UNSUPPORTED_BLOCK_TYPES = new Set([
+  'advisor_tool_result', 'server_tool_use', 'mcp_tool_use',
+  'server_tool_result', 'mcp_tool_result', 'redacted_thinking',
+])
+
+function sanitizeBlocks(content: unknown[]): unknown[] {
+  return content
+    .filter(b => {
+      if (typeof b === 'string') return true
+      const type = (b as any)?.type
+      return !UNSUPPORTED_BLOCK_TYPES.has(type)
+    })
+    .map(b => {
+      if (typeof b !== 'object' || b == null) return b
+      // Strip 'citations' field — DeepSeek rejects unknown fields on blocks
+      const { citations, ...rest } = b as Record<string, unknown>
+      return rest
+    })
+}
+
 function buildApiMessages(messages: Message[]): Array<Record<string, unknown>> {
   const out: Array<Record<string, unknown>> = []
   for (const m of messages) {
@@ -188,9 +209,9 @@ function buildApiMessages(messages: Message[]): Array<Record<string, unknown>> {
     if (typeof content === 'string') {
       out.push({ role, content })
     } else if (Array.isArray(content)) {
-      out.push({ role, content })
+      out.push({ role, content: sanitizeBlocks(content) })
     } else if (content && typeof content === 'object') {
-      out.push({ role, content: [content] })
+      out.push({ role, content: sanitizeBlocks([content]) })
     } else {
       out.push({ role, content: '' })
     }

@@ -132,6 +132,26 @@ Tauri 2 桌面应用，悬浮在屏幕顶部，一键启动/切换所有 AI codi
 
 ---
 
+
+## 🛠️ 修复（2026-05-25）
+
+### 🐛 DeepSeek 多轮对话无法返回消息（关键修复）
+
+**根因**：DeepSeek 直连路径在消息预处理时缺少 `stripCallerField` + `stripAdvisorBlocks` 清理步骤，导致 `caller`、`advisor_tool_result`、`server_tool_use` 等 DeepSeek 不认识的字段/块被发送到 API，触发 400 或空响应。
+
+**修复**：
+- `claude.ts`：DeepSeek 直连路径补齐 `stripCallerFieldFromAssistantMessage` + `stripAdvisorBlocks`
+- `deepseek-direct.ts`：`buildApiMessages` 新增 `sanitizeBlocks`，过滤 6 种不兼容块类型 + 移除 `citations` 字段
+
+### 🐛 滚轮滚动跳顶/跳底（Windows Terminal）
+
+**根因**：Windows Terminal 滚轮事件间隔不规律，在 200ms 的 bounce 判定窗口内容易产生方向翻转假象，导致 `wheelMode` 被误触发，加速曲线生效后单次滚轮跳过大量内容。
+
+**修复**：`ScrollKeybindingHandler.tsx` 中 `WHEEL_BOUNCE_GAP_MAX_MS` 在 Windows Terminal（`WT_SESSION`）下从 200ms 收紧到 80ms，只有真正的编码器弹跳才能触发 wheelMode。
+
+---
+
+
 ## 🛠️ 今日新增（2026-05-23）
 
 ### 🔗 Spectre Bridge — 事件驱动意识体协同
