@@ -9,6 +9,7 @@ import { getIsRemoteMode } from '../bootstrap/state.js'
 import type { Command } from '../commands.js'
 import { BLACK_CIRCLE } from '../constants/figures.js'
 import { useTerminalSize } from '../hooks/useTerminalSize.js'
+import { useContentColumns } from './HakingLayout.js'
 import type { ScrollBoxHandle } from '@anthropic/ink'
 import { useTerminalNotification } from '@anthropic/ink'
 import { Box, Text } from '@anthropic/ink'
@@ -426,7 +427,7 @@ const MessagesImpl = ({
   cursorNavRef,
   renderRange,
 }: Props): React.ReactNode => {
-  const { columns } = useTerminalSize()
+  const columns = useContentColumns()
   const toggleShowAllShortcut = useShortcutDisplay(
     'transcript:toggleShowAll',
     'Transcript',

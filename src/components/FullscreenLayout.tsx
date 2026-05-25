@@ -27,6 +27,7 @@ import { plural } from '../utils/stringUtils.js'
 import { isNullRenderingAttachment } from './messages/nullRenderingAttachments.js'
 import PromptInputFooterSuggestions from './PromptInput/PromptInputFooterSuggestions.js'
 import type { StickyPrompt } from './VirtualMessageList.js'
+import { useContentColumns } from './HakingLayout.js'
 
 /** Rows of transcript context kept visible above the modal pane's ▔ divider. */
 const MODAL_TRANSCRIPT_PEEK = 2;
@@ -300,7 +301,8 @@ export function FullscreenLayout({
   newMessageCount = 0,
   onPillClick,
 }: Props): React.ReactNode {
-  const { rows: terminalRows, columns } = useTerminalSize();
+  const { rows: terminalRows, columns: _termCols } = useTerminalSize();
+  const columns = useContentColumns();
   // Scroll-derived chrome state lives HERE, not in REPL. StickyTracker
   // writes via ScrollChromeContext; pillVisible subscribes directly to
   // ScrollBox. Both change rarely (pill flips once per threshold crossing,
@@ -372,7 +374,7 @@ export function FullscreenLayout({
     return (
       <PromptOverlayProvider>
         <Box flexDirection="row" flexGrow={1} overflow="hidden" width="100%">
-          <Box flexDirection="column" flexGrow={1} width={columns} overflow="hidden">
+          <Box flexDirection="column" flexGrow={1} overflow="hidden">
             <Box flexGrow={1} flexDirection="column" overflow="hidden">
               {headerPrompt && <StickyPromptHeader text={headerPrompt.text} onClick={headerPrompt.scrollTo} />}
               <ScrollBox

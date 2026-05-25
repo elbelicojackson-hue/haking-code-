@@ -145,6 +145,38 @@ Tauri 2 桌面应用，悬浮在屏幕顶部，一键启动/切换所有 AI codi
 ---
 
 
+## 🛠️ 修复（2026-05-26）
+
+### 🐛 全屏渲染残帧 — 界面重复叠加（关键修复）
+
+**根因**：`isFullscreenEnvEnabled()` 默认返回 `false`（仅 `USER_TYPE=ant` 时启用），导致 Ink 在主屏幕模式下运行。主屏幕模式每次重绘是追加式的——新帧写在旧帧下方，旧帧留在终端滚动缓冲区中，表现为"界面被重复叠加"。
+
+**修复**：
+- `fullscreen.ts`：`isFullscreenEnvEnabled()` 默认返回 `true`，所有交互式会话自动进入 alt-screen 全屏模式
+- 用户可通过 `CLAUDE_CODE_NO_FLICKER=0` 手动关闭
+
+### 🐛 侧边栏与内容区重叠/文本换行错位
+
+**根因**：`HakingLayout`（侧边栏容器）在 `<AlternateScreen>` 外部包裹 REPL，导致 Yoga 高度计算冲突。同时 `FullscreenLayout` 和 `Messages` 中硬编码 `width={columns}`（终端全宽），未减去侧边栏 24 列宽度。
+
+**修复**：
+- `replLauncher.tsx`：移除外层 HakingLayout 包裹
+- `REPL.tsx`：将 HakingLayout 移到 `<AlternateScreen>` 内部
+- `HakingLayout.tsx`：新增 `ContentColumnsContext` + `useContentColumns()` hook，传递实际内容区宽度
+- `FullscreenLayout.tsx`：用 `useContentColumns()` 替代 `useTerminalSize().columns`
+- `Messages.tsx`：同上，消息行和 Divider 在正确宽度内渲染
+
+### 🐛 Citation 系统消息在 UI 中重复显示
+
+**根因**：`stopHooks.ts` 每轮注入的 CVE/RE-INTEL/PENTEST-KB citation 消息以 `isMeta: false` 创建，在 UI 中可见。去重窗口仅 3 轮，相同术语第 4 轮起重复注入。
+
+**修复**：
+- `stopHooks.ts`：citation 消息设置 `isMeta = true`，对模型可见但 UI 不渲染
+- `forcedVerification.ts`：`DEDUP_WINDOW_TURNS` 从 3 增大到 8
+
+---
+
+
 ## 🛠️ 修复（2026-05-25）
 
 ### 🐛 DeepSeek 多轮对话无法返回消息（关键修复）

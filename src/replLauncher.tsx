@@ -19,13 +19,10 @@ export async function launchRepl(
 ): Promise<void> {
   const { App } = await import('./components/App.js')
   const { REPL } = await import('./screens/REPL.js')
-  const { HakingLayout } = await import('./components/HakingLayout.js')
   await renderAndRun(
     root,
     <App {...appProps}>
-      <HakingLayout>
-        <REPL {...replProps} />
-      </HakingLayout>
+      <REPL {...replProps} />
     </App>,
   )
 }

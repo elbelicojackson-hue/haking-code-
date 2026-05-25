@@ -249,7 +249,7 @@ export async function executeVerification(responseText: string): Promise<Verific
  */
 
 const CITATION_BUDGET_CHARS = 3200 // ~800 tokens
-const DEDUP_WINDOW_TURNS = 3
+const DEDUP_WINDOW_TURNS = 8
 
 /** Track recently cited items to avoid re-injection. */
 const recentCitations = new Map<string, number>() // key → turn number

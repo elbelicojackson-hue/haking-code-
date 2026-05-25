@@ -483,6 +483,7 @@ import type { RemoteMessageContent } from '../utils/teleport/api.js';
 import { FullscreenLayout, useUnseenDivider, computeUnseenDivider } from '../components/FullscreenLayout.js';
 import { isFullscreenEnvEnabled, maybeGetTmuxMouseHint, isMouseTrackingEnabled } from '../utils/fullscreen.js';
 import { AlternateScreen } from '@anthropic/ink';
+import { HakingLayout } from '../components/HakingLayout.js';
 import { ScrollKeybindingHandler } from '../components/ScrollKeybindingHandler.js';
 import {
   useMessageActions,
@@ -5482,7 +5483,7 @@ export function REPL({
     // stays entered across toggle. The 30-cap dump branch stays
     // unwrapped — it wants native terminal scrollback.
     if (transcriptScrollRef) {
-      return <AlternateScreen mouseTracking={isMouseTrackingEnabled()}>{transcriptReturn}</AlternateScreen>;
+      return <AlternateScreen mouseTracking={isMouseTrackingEnabled()}><HakingLayout>{transcriptReturn}</HakingLayout></AlternateScreen>;
     }
     return transcriptReturn;
   }
@@ -6380,7 +6381,7 @@ export function REPL({
     </KeybindingSetup>
   );
   if (isFullscreenEnvEnabled()) {
-    return <AlternateScreen mouseTracking={isMouseTrackingEnabled()}>{mainReturn}</AlternateScreen>;
+    return <AlternateScreen mouseTracking={isMouseTrackingEnabled()}><HakingLayout>{mainReturn}</HakingLayout></AlternateScreen>;
   }
   return mainReturn;
 }

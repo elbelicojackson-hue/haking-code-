@@ -125,7 +125,10 @@ export function isFullscreenEnvEnabled(): boolean {
     }
     return false
   }
-  return process.env.USER_TYPE === 'ant'
+  // Haking Code: default to fullscreen for all interactive sessions.
+  // Without alt-screen, Ink renders in main-screen mode where each frame
+  // appends below the previous one, leaving "ghost frames" in scrollback.
+  return true
 }
 
 /**

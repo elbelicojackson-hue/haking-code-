@@ -245,7 +245,11 @@ export async function* handleStopHooks(
         // Apply budget control and emit single system message
         if (citationBlocks.length > 0) {
           const trimmed = trimToBudget(citationBlocks)
-          if (trimmed) yield createSystemMessage(trimmed, 'info')
+          if (trimmed) {
+            const citationMsg = createSystemMessage(trimmed, 'info')
+            citationMsg.isMeta = true
+            yield citationMsg
+          }
         }
       }
     }
