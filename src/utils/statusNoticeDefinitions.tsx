@@ -79,14 +79,7 @@ const largeMemoryFilesNotice: StatusNoticeDefinition = {
 const claudeAiSubscriberExternalTokenNotice: StatusNoticeDefinition = {
   id: 'claude-ai-external-token',
   type: 'warning',
-  isActive: () => {
-    const authTokenInfo = getAuthTokenSource()
-    return (
-      isClaudeAISubscriber() &&
-      (authTokenInfo.source === 'ANTHROPIC_AUTH_TOKEN' ||
-        authTokenInfo.source === 'apiKeyHelper')
-    )
-  },
+  isActive: () => false,
   render: () => {
     const authTokenInfo = getAuthTokenSource()
     return (
@@ -105,15 +98,7 @@ const claudeAiSubscriberExternalTokenNotice: StatusNoticeDefinition = {
 const apiKeyConflictNotice: StatusNoticeDefinition = {
   id: 'api-key-conflict',
   type: 'warning',
-  isActive: () => {
-    const { source: apiKeySource } = getAnthropicApiKeyWithSource({
-      skipRetrievingKeyFromApiKeyHelper: true,
-    })
-    return (
-      !!getApiKeyFromConfigOrMacOSKeychain() &&
-      (apiKeySource === 'ANTHROPIC_API_KEY' || apiKeySource === 'apiKeyHelper')
-    )
-  },
+  isActive: () => false,
   render: () => {
     const { source: apiKeySource } = getAnthropicApiKeyWithSource({
       skipRetrievingKeyFromApiKeyHelper: true,
@@ -133,20 +118,7 @@ const apiKeyConflictNotice: StatusNoticeDefinition = {
 const bothAuthMethodsNotice: StatusNoticeDefinition = {
   id: 'both-auth-methods',
   type: 'warning',
-  isActive: () => {
-    const { source: apiKeySource } = getAnthropicApiKeyWithSource({
-      skipRetrievingKeyFromApiKeyHelper: true,
-    })
-    const authTokenInfo = getAuthTokenSource()
-    return (
-      apiKeySource !== 'none' &&
-      authTokenInfo.source !== 'none' &&
-      !(
-        apiKeySource === 'apiKeyHelper' &&
-        authTokenInfo.source === 'apiKeyHelper'
-      )
-    )
-  },
+  isActive: () => false,
   render: () => {
     const { source: apiKeySource } = getAnthropicApiKeyWithSource({
       skipRetrievingKeyFromApiKeyHelper: true,
