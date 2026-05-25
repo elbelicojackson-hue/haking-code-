@@ -882,6 +882,160 @@ set ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic
 
 - [Bun](https://bun.sh/) >= 1.2.0
 - DeepSeek API Key（https://platform.deepseek.com）
+- Node.js >= 18（部分 postinstall 脚本需要）
+- Git（克隆仓库）
+
+### 📦 项目依赖一览
+
+> 所有依赖通过 `bun install` 自动安装，无需手动处理。
+
+#### 运行时依赖（dependencies）
+
+| 包名 | 版本 | 用途 |
+|------|------|------|
+| `@agentclientprotocol/sdk` | ^0.19.0 | Agent Client Protocol SDK |
+| `@claude-code-best/mcp-chrome-bridge` | ^2.0.8 | Chrome MCP 桥接 |
+| `ws` | ^8.20.0 | WebSocket（灵动岛通信） |
+
+#### 核心开发依赖（devDependencies）
+
+**AI/LLM SDK**
+
+| 包名 | 版本 | 用途 |
+|------|------|------|
+| `@anthropic-ai/sdk` | ^0.80.0 | Anthropic Messages API SDK |
+| `@anthropic-ai/bedrock-sdk` | ^0.26.4 | AWS Bedrock 接入 |
+| `@anthropic-ai/vertex-sdk` | ^0.14.4 | Google Vertex AI 接入 |
+| `@anthropic-ai/claude-agent-sdk` | ^0.2.114 | Claude Agent SDK |
+| `@anthropic-ai/foundry-sdk` | ^0.2.3 | Foundry SDK |
+| `@anthropic-ai/mcpb` | ^2.1.2 | MCP Builder |
+| `@anthropic-ai/sandbox-runtime` | ^0.0.44 | 沙箱运行时 |
+| `openai` | ^6.34.0 | OpenAI 兼容 API |
+| `@modelcontextprotocol/sdk` | ^1.29.0 | MCP 协议 SDK |
+
+**UI/终端渲染**
+
+| 包名 | 版本 | 用途 |
+|------|------|------|
+| `@anthropic/ink` | workspace:* | 终端 UI 框架（Ink fork） |
+| `react` | ^19.2.5 | React 渲染引擎 |
+| `react-reconciler` | ^0.33.0 | React 自定义渲染器 |
+| `react-compiler-runtime` | ^1.0.0 | React Compiler 运行时 |
+| `chalk` | ^5.6.2 | 终端颜色 |
+| `cli-highlight` | ^2.1.11 | 代码语法高亮 |
+| `highlight.js` | ^11.11.1 | 语法高亮引擎 |
+| `marked` | ^17.0.6 | Markdown 解析 |
+| `figures` | ^6.1.0 | 终端 Unicode 符号 |
+| `cli-boxes` | ^4.0.1 | 终端边框绘制 |
+| `wrap-ansi` | ^10.0.0 | ANSI 文本换行 |
+| `strip-ansi` | ^7.2.0 | 去除 ANSI 转义码 |
+| `qrcode` | ^1.5.4 | 二维码生成 |
+| `asciichart` | ^1.5.25 | 终端图表 |
+
+**AWS SDK**
+
+| 包名 | 版本 | 用途 |
+|------|------|------|
+| `@aws-sdk/client-bedrock` | ^3.1032.0 | Bedrock 客户端 |
+| `@aws-sdk/client-bedrock-runtime` | ^3.1032.0 | Bedrock 运行时 |
+| `@aws-sdk/client-sts` | ^3.1032.0 | STS 令牌服务 |
+| `@aws-sdk/credential-provider-node` | ^3.972.32 | 凭证提供者 |
+| `@aws-sdk/credential-providers` | ^3.1032.0 | 凭证提供者集合 |
+
+**工具/实用库**
+
+| 包名 | 版本 | 用途 |
+|------|------|------|
+| `axios` | ^1.15.0 | HTTP 客户端 |
+| `undici` | ^7.25.0 | 高性能 HTTP 客户端 |
+| `execa` | ^9.6.1 | 子进程执行（安全工具调用） |
+| `chokidar` | ^5.0.0 | 文件监听 |
+| `fuse.js` | ^7.3.0 | 模糊搜索 |
+| `lodash-es` | ^4.18.1 | 工具函数库 |
+| `lru-cache` | ^11.3.5 | LRU 缓存 |
+| `semver` | ^7.7.4 | 语义化版本 |
+| `yaml` | ^2.8.3 | YAML 解析 |
+| `zod` | ^4.3.6 | 运行时类型校验 |
+| `ajv` | ^8.18.0 | JSON Schema 校验 |
+| `diff` | ^8.0.4 | 文本差异比较 |
+| `shell-quote` | ^1.8.3 | Shell 命令解析 |
+| `tree-kill` | ^1.2.2 | 进程树终止 |
+| `signal-exit` | ^4.1.0 | 退出信号处理 |
+| `p-map` | ^7.0.4 | 并发 Promise 映射 |
+| `proper-lockfile` | ^4.1.2 | 文件锁 |
+| `cacache` | ^20.0.4 | 内容寻址缓存 |
+| `env-paths` | ^4.0.0 | 跨平台路径 |
+| `ignore` | ^7.0.5 | .gitignore 解析 |
+| `picomatch` | ^4.0.4 | Glob 匹配 |
+| `turndown` | ^7.2.4 | HTML 转 Markdown |
+| `xss` | ^1.0.15 | XSS 过滤 |
+| `he` | ^1.2.0 | HTML 实体编解码 |
+| `fflate` | ^0.8.2 | 压缩/解压 |
+| `sharp` | ^0.34.5 | 图片处理 |
+| `plist` | ^3.1.0 | macOS plist 解析 |
+| `jsonc-parser` | ^3.3.1 | JSONC 解析（带注释） |
+| `auto-bind` | ^5.0.1 | 自动绑定 this |
+| `indent-string` | ^5.0.0 | 字符串缩进 |
+| `code-excerpt` | ^4.0.0 | 代码片段提取 |
+| `emoji-regex` | ^10.6.0 | Emoji 正则 |
+| `get-east-asian-width` | ^1.5.0 | 东亚字符宽度 |
+| `bidi-js` | ^1.0.3 | 双向文本处理 |
+| `supports-hyperlinks` | ^4.4.0 | 终端超链接检测 |
+| `https-proxy-agent` | ^8.0.0 | HTTPS 代理 |
+| `google-auth-library` | ^10.6.2 | Google 认证 |
+| `@azure/identity` | ^4.13.1 | Azure 认证 |
+| `usehooks-ts` | ^3.1.1 | React Hooks 工具 |
+| `stack-utils` | ^2.0.6 | 堆栈解析 |
+
+**可观测性/分析**
+
+| 包名 | 版本 | 用途 |
+|------|------|------|
+| `@opentelemetry/api` | ^1.9.1 | OpenTelemetry API |
+| `@opentelemetry/sdk-trace-base` | ^2.7.0 | 链路追踪 |
+| `@opentelemetry/sdk-metrics` | ^2.7.0 | 指标采集 |
+| `@opentelemetry/sdk-logs` | ^0.214.0 | 日志采集 |
+| `@langfuse/otel` | ^5.1.0 | Langfuse 集成 |
+| `@langfuse/tracing` | ^5.1.0 | Langfuse 追踪 |
+| `@growthbook/growthbook` | ^1.6.5 | 功能开关 |
+| `@sentry/node` | ^10.49.0 | 错误监控 |
+
+**LSP/编辑器集成**
+
+| 包名 | 版本 | 用途 |
+|------|------|------|
+| `vscode-jsonrpc` | ^8.2.1 | JSON-RPC 协议 |
+| `vscode-languageserver-protocol` | ^3.17.5 | LSP 协议 |
+| `vscode-languageserver-types` | ^3.17.5 | LSP 类型定义 |
+
+**构建/开发工具**
+
+| 包名 | 版本 | 用途 |
+|------|------|------|
+| `typescript` | ^6.0.3 | TypeScript 编译器 |
+| `vite` | ^8.0.8 | 构建工具 |
+| `rollup` | ^4.60.2 | 模块打包 |
+| `@biomejs/biome` | ^2.4.12 | Linter + Formatter |
+| `knip` | ^6.4.1 | 死代码检测 |
+
+**Workspace 内部包**
+
+| 包名 | 用途 |
+|------|------|
+| `@ant/model-provider` | 多模型 Provider 管理 |
+| `@ant/claude-for-chrome-mcp` | Chrome MCP |
+| `@ant/computer-use-input` | Computer Use 输入 |
+| `@ant/computer-use-mcp` | Computer Use MCP |
+| `@ant/computer-use-swift` | Computer Use Swift |
+| `@haking/agent-tools` | Agent 工具集 |
+| `@haking/builtin-tools` | 内置工具（Bash/File/Grep 等） |
+| `@haking/mcp-client` | MCP 客户端 |
+| `@haking/weixin` | 微信集成 |
+| `audio-capture-napi` | 音频捕获 NAPI |
+| `color-diff-napi` | 颜色差异 NAPI |
+| `image-processor-napi` | 图片处理 NAPI |
+| `modifiers-napi` | 修饰键 NAPI |
+| `url-handler-napi` | URL 处理 NAPI |
 
 ### 安装 & 运行
 
