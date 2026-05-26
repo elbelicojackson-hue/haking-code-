@@ -96,12 +96,22 @@ function arrayShallowEqualByPath(
 
 const memoryFilesStore = new MemoryFilesStore();
 
-export const MemoryPanel = memo(function MemoryPanel(): React.ReactNode {
+type Props = {
+  /** Maximum memory file rows to render. Caller (Sidebar) computes from
+   *  terminal height. Falls back to a reasonable default if the panel is
+   *  mounted standalone. */
+  max?: number;
+};
+
+const DEFAULT_MAX = 6;
+
+export const MemoryPanel = memo(function MemoryPanel({ max = DEFAULT_MAX }: Props): React.ReactNode {
   const files = useSyncExternalStore(
     memoryFilesStore.subscribe,
     memoryFilesStore.getSnapshot,
     memoryFilesStore.getSnapshot,
   );
+  const limit = Math.max(1, max);
 
   return (
     <Box flexDirection="column" paddingX={1} marginTop={1}>
@@ -110,14 +120,14 @@ export const MemoryPanel = memo(function MemoryPanel(): React.ReactNode {
         {files.length === 0 ? (
           <Text dimColor>  No memory files</Text>
         ) : (
-          files.slice(0, 6).map((f, i) => (
+          files.slice(0, limit).map((f, i) => (
             <Text key={f.path ?? i} wrap="truncate-end" dimColor>
               • {basename(f.path)}
             </Text>
           ))
         )}
-        {files.length > 6 && (
-          <Text dimColor>  +{files.length - 6} more</Text>
+        {files.length > limit && (
+          <Text dimColor>  +{files.length - limit} more</Text>
         )}
       </Box>
     </Box>

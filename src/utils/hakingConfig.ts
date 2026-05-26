@@ -27,6 +27,11 @@ export interface HakingConfig {
   providers: ProviderEntry[]
   defaultProvider?: string
   theme?: string
+  /** Persisted UI preferences. */
+  ui?: {
+    /** Whether the sidebar (Tasks/Memory/Buddy) is visible. Defaults to true. */
+    sidebarVisible?: boolean
+  }
 }
 
 const CONFIG_PATH = join(homedir(), '.haking', 'config.json')
@@ -77,4 +82,25 @@ export function applyHakingConfig(): void {
       process.env.ANTHROPIC_BASE_URL = provider.baseUrl
     }
   }
+}
+
+/**
+ * Read the persisted sidebar visibility preference. Defaults to true when
+ * no value has ever been written. Cheap synchronous file read; fine to call
+ * once during component mount, NOT on every render.
+ */
+export function getSidebarVisible(): boolean {
+  return loadHakingConfig().ui?.sidebarVisible ?? true
+}
+
+/**
+ * Persist the sidebar visibility preference. Called from the toggle
+ * handler — toggle frequency is human-paced, no debounce needed.
+ */
+export function setSidebarVisible(visible: boolean): void {
+  const config = loadHakingConfig()
+  saveHakingConfig({
+    ...config,
+    ui: { ...config.ui, sidebarVisible: visible },
+  })
 }
