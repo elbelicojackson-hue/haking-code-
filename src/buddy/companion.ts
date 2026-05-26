@@ -1,4 +1,5 @@
 import { getGlobalConfig } from '../utils/config.js'
+import { createSignal } from '../utils/signal.js'
 import {
   type Companion,
   type CompanionBones,
@@ -133,4 +134,21 @@ export function getCompanion(): Companion | undefined {
   const { bones } = rollWithSeed(seed)
   // bones last so stale bones fields in old-format configs get overridden
   return { ...stored, ...bones }
+}
+
+/**
+ * Fires whenever the stored companion record changes (hatch, rehatch).
+ * Sidebar BuddyPanel + any other UI surface subscribes to refetch via
+ * getCompanion(). Mute/unmute does NOT emit — it doesn't change the
+ * companion identity, only the chat-react gating. Call notifyCompanionChanged
+ * after every saveGlobalConfig that mutates the `companion` field.
+ */
+const companionChanged = createSignal()
+
+/** Subscribe to companion-record mutations. Returns unsubscribe. */
+export const subscribeCompanionChanged = companionChanged.subscribe
+
+/** Call after writing a new companion record to globalConfig. */
+export function notifyCompanionChanged(): void {
+  companionChanged.emit()
 }
