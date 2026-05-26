@@ -58,6 +58,10 @@ export const DEFAULT_BINDINGS: KeybindingBlock[] = [
           }
         : {}),
       ...(feature('TERMINAL_PANEL') ? { 'meta+j': 'app:toggleTerminal' } : {}),
+      // Sidebar toggle (Tasks/Memory/Buddy panels). Uses chord prefix
+      // because ctrl+b alone is reserved for task:background, and
+      // meta+b is readline's backward-word inside text inputs.
+      'ctrl+x ctrl+b': 'app:toggleSidebar',
     },
   },
   {

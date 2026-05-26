@@ -923,7 +923,8 @@ set ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic
 
 | 快捷键 | 功能 |
 |--------|------|
-| `Ctrl+B` | 切换侧边栏 |
+| `Ctrl+X Ctrl+B` | 切换侧边栏（chord：先按 Ctrl+X 再按 Ctrl+B） |
+| `Ctrl+B` | Background 当前前台任务（bash / agent） |
 | `Ctrl+O` | 切换 Transcript 模式（查看详细日志） |
 | `PgUp / PgDn` | 翻页滚动 |
 | `Esc` | 取消当前操作 |
@@ -1349,7 +1350,7 @@ src/algorithms/
 └──────────────┴──────────────────────────────────────┘
 ```
 
-- `Ctrl+B` 切换侧边栏
+- `Ctrl+X Ctrl+B` 切换侧边栏（chord 形式：先按 Ctrl+X，松开后再按 Ctrl+B）
 - 终端宽度 < 80 列自动隐藏侧边栏；< 70 列自动隐藏计费面板
 - 计费面板每秒轮询一次 `STATE.modelUsage` 累加值（cost-tracker 在 React 之外 mutate 全局，没有事件订阅）
 
