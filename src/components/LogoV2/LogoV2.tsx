@@ -35,7 +35,7 @@ export function LogoV2(): React.ReactNode {
         <Text dimColor>cwd: {cwd}</Text>
       </Box>
       <Box marginTop={1}>
-        <Text dimColor>Tips: Ctrl+B toggle sidebar · /help for commands · /model to switch</Text>
+        <Text dimColor>Tips: Ctrl+X Ctrl+B toggle sidebar · /help for commands · /model to switch</Text>
       </Box>
     </Box>
   );
