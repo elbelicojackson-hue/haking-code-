@@ -8,8 +8,18 @@ const STATUS_ICON: Record<string, string> = {
   completed: '☑',
 };
 
-export const TaskPanel = memo(function TaskPanel(): React.ReactNode {
+type Props = {
+  /** Maximum task rows to render. Caller (Sidebar) computes this from
+   *  available terminal height. Falls back to a reasonable default if
+   *  the panel is mounted standalone. */
+  max?: number;
+};
+
+const DEFAULT_MAX = 8;
+
+export const TaskPanel = memo(function TaskPanel({ max = DEFAULT_MAX }: Props): React.ReactNode {
   const tasks = useTasksV2();
+  const limit = Math.max(1, max);
 
   return (
     <Box flexDirection="column" paddingX={1}>
@@ -18,7 +28,7 @@ export const TaskPanel = memo(function TaskPanel(): React.ReactNode {
         {!tasks || tasks.length === 0 ? (
           <Text dimColor>  No active tasks</Text>
         ) : (
-          tasks.slice(0, 8).map(task => (
+          tasks.slice(0, limit).map(task => (
             <Text key={task.id} wrap="truncate-end">
               <Text color={task.status === 'completed' ? 'ansi:green' : task.status === 'in_progress' ? 'ansi:yellow' : undefined}>
                 {STATUS_ICON[task.status] ?? '☐'}
@@ -28,8 +38,8 @@ export const TaskPanel = memo(function TaskPanel(): React.ReactNode {
             </Text>
           ))
         )}
-        {tasks && tasks.length > 8 && (
-          <Text dimColor>  +{tasks.length - 8} more</Text>
+        {tasks && tasks.length > limit && (
+          <Text dimColor>  +{tasks.length - limit} more</Text>
         )}
       </Box>
     </Box>
