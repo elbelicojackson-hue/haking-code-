@@ -1,6 +1,7 @@
 import React from 'react'
 import {
   getCompanion,
+  notifyCompanionChanged,
   rollWithSeed,
   generateSeed,
 } from '../../buddy/companion.js'
@@ -147,6 +148,7 @@ export async function call(
   }
 
   saveGlobalConfig(cfg => ({ ...cfg, companion: stored }))
+  notifyCompanionChanged()
 
   const stars = RARITY_STARS[r.bones.rarity]
   const sprite = renderSprite(r.bones, 0)

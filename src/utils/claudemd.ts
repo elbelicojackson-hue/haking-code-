@@ -77,6 +77,7 @@ import { expandPath } from './path.js'
 import { pathInWorkingPath } from './permissions/filesystem.js'
 import { isSettingSourceEnabled } from './settings/constants.js'
 import { getInitialSettings } from './settings/settings.js'
+import { createSignal } from './signal.js'
 
 /* eslint-disable @typescript-eslint/no-require-imports */
 const teamMemPaths = feature('TEAMMEM')
@@ -1116,9 +1117,27 @@ function consumeNextEagerLoadReason(): InstructionsLoadReason | undefined {
  * represent instructions actually being reloaded into context (e.g.
  * compaction), use resetGetMemoryFilesCache() instead.
  */
+/**
+ * Fires whenever the memoized getMemoryFiles cache is invalidated. UI panels
+ * (e.g. sidebar MemoryPanel) can subscribe to refetch on /memory edits,
+ * worktree switches, settings sync, and post-compact reloads — every one of
+ * these flows already routes through clearMemoryFileCaches /
+ * resetGetMemoryFilesCache, so a single emit here covers them all without
+ * touching the 9 call sites.
+ */
+const memoryFilesChanged = createSignal()
+
+/**
+ * Subscribe to memory-file cache invalidation events. Returns an
+ * unsubscribe function. Listener is called with no args after the cache
+ * has been cleared — call getMemoryFiles() again to get fresh data.
+ */
+export const subscribeMemoryFilesChanged = memoryFilesChanged.subscribe
+
 export function clearMemoryFileCaches(): void {
   // ?.cache because tests spyOn this, which replaces the memoize wrapper.
   getMemoryFiles.cache?.clear?.()
+  memoryFilesChanged.emit()
 }
 
 export function resetGetMemoryFilesCache(
