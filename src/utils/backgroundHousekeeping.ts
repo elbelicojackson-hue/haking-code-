@@ -32,12 +32,33 @@ export function startBackgroundHousekeeping(): void {
   void initMagicDocs()
   void initSkillImprovement()
   if (feature('EXTRACT_MEMORIES')) {
-    extractMemoriesModule!.initExtractMemories()
+    // Guard: even when the feature flag is on at build time, the dynamic
+    // require above can land us with a partially-loaded or stub module
+    // (circular import, mismatched bun version, DCE edge cases).
+    // See https://github.com/elbelicojackson-hue/haking-code-/issues/1
+    if (typeof extractMemoriesModule?.initExtractMemories === 'function') {
+      extractMemoriesModule.initExtractMemories()
+    } else {
+      console.warn(
+        '[housekeeping] EXTRACT_MEMORIES feature enabled but ' +
+          'initExtractMemories export is missing — skipping memory extraction init.',
+      )
+    }
   }
   initAutoDream()
   void autoUpdateMarketplacesAndPluginsInBackground()
   if (feature('LODESTONE') && getIsInteractive()) {
-    void registerProtocolModule!.ensureDeepLinkProtocolRegistered()
+    if (
+      typeof registerProtocolModule?.ensureDeepLinkProtocolRegistered ===
+      'function'
+    ) {
+      void registerProtocolModule.ensureDeepLinkProtocolRegistered()
+    } else {
+      console.warn(
+        '[housekeeping] LODESTONE feature enabled but ' +
+          'ensureDeepLinkProtocolRegistered export is missing — skipping deep-link protocol register.',
+      )
+    }
   }
 
   let needsCleanup = true
